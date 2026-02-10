@@ -1,0 +1,312 @@
+import os
+import json
+import yaml
+from pathlib import Path
+
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras.applications import EfficientNetB3
+from tensorflow.keras import layers, models
+from sklearn.utils.class_weight import compute_class_weight
+
+SEED = 1337
+tf.random.set_seed(SEED)
+np.random.seed(SEED)
+
+# Improved settings for better accuracy
+IMG_SIZE = (384, 384)  # Larger image size for better feature extraction
+BATCH_SIZE = 16  # Smaller batch for larger images
+STEPS_PER_EPOCH = 300  # More steps per epoch
+VAL_STEPS = 100
+
+# Load class names from data.yaml
+with open("dataset/data.yaml", "r") as f:
+    data_config = yaml.safe_load(f)
+
+CLASS_NAMES = data_config["names"]
+NUM_CLASSES = len(CLASS_NAMES)
+
+TRAIN_DIR = "dataset/train/images"
+VALID_DIR = "dataset/valid/images"
+TEST_DIR = "dataset/test/images"
+TRAIN_LABELS_DIR = "dataset/train/labels"
+VALID_LABELS_DIR = "dataset/valid/labels"
+TEST_LABELS_DIR = "dataset/test/labels"
+
+print(f"Classes ({NUM_CLASSES}): {CLASS_NAMES}")
+
+
+def _get_class_from_yolo_label(label_path):
+    """Extract class index from YOLO label file (first number in the file)"""
+    try:
+        with open(label_path, 'r') as f:
+            first_line = f.readline().strip()
+            if first_line:
+                class_idx = int(first_line.split()[0])
+                return class_idx
+    except:
+        return None
+    return None
+
+
+def _count_images(images_dir: str, labels_dir: str) -> dict:
+    """Count images per class from YOLO labels"""
+    exts = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+    class_counts = {cls: 0 for cls in CLASS_NAMES}
+    
+    for img_file in Path(images_dir).glob("*"):
+        if img_file.is_file() and img_file.suffix.lower() in exts:
+            label_file = Path(labels_dir) / (img_file.stem + ".txt")
+            if label_file.exists():
+                class_idx = _get_class_from_yolo_label(label_file)
+                if class_idx is not None and class_idx < NUM_CLASSES:
+                    class_counts[CLASS_NAMES[class_idx]] += 1
+    
+    return class_counts
+
+
+print("Dataset counts:")
+print("- train:", _count_images(TRAIN_DIR, TRAIN_LABELS_DIR))
+print("- valid:", _count_images(VALID_DIR, VALID_LABELS_DIR))
+print("- test:", _count_images(TEST_DIR, TEST_LABELS_DIR))
+
+def _create_dataset(images_dir: str, labels_dir: str, batch_size=BATCH_SIZE, shuffle=True):
+    """Create dataset from YOLO format images and labels"""
+    exts = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+    
+    image_paths = []
+    class_indices = []
+    
+    for img_file in sorted(Path(images_dir).glob("*")):
+        if img_file.is_file() and img_file.suffix.lower() in exts:
+            label_file = Path(labels_dir) / (img_file.stem + ".txt")
+            if label_file.exists():
+                class_idx = _get_class_from_yolo_label(label_file)
+                if class_idx is not None and class_idx < NUM_CLASSES:
+                    image_paths.append(str(img_file))
+                    class_indices.append(class_idx)
+    
+    if not image_paths:
+        raise ValueError(f"No valid images found in {images_dir}")
+    
+    ds = tf.data.Dataset.from_tensor_slices((image_paths, class_indices))
+    
+    def load_image(path, label):
+        img = tf.io.read_file(path)
+        img = tf.image.decode_jpeg(img, channels=3)
+        img = tf.image.resize(img, IMG_SIZE)
+        return img, label
+    
+    ds = ds.map(load_image, num_parallel_calls=tf.data.AUTOTUNE)
+    
+    if shuffle:
+        ds = ds.shuffle(buffer_size=len(image_paths))
+    
+    ds = ds.batch(batch_size)
+    return ds, len(image_paths)
+
+
+# Create datasets
+train_ds, train_count = _create_dataset(TRAIN_DIR, TRAIN_LABELS_DIR, shuffle=True)
+valid_ds, valid_count = _create_dataset(VALID_DIR, VALID_LABELS_DIR, shuffle=False)
+test_ds, test_count = _create_dataset(TEST_DIR, TEST_LABELS_DIR, shuffle=False)
+
+print(f"Dataset sizes - train: {train_count}, valid: {valid_count}, test: {test_count}")
+
+# Enhanced augmentation for better generalization
+augment = tf.keras.Sequential(
+    [
+        layers.RandomFlip("horizontal"),
+        layers.RandomFlip("vertical"),  # Add vertical flip for medical images
+        layers.RandomRotation(0.15),  # Increased rotation
+        layers.RandomZoom(0.15),  # Increased zoom
+        layers.RandomContrast(0.2),  # Increased contrast variation
+        layers.RandomBrightness(0.2),  # Add brightness variation
+        layers.RandomTranslation(0.1, 0.1),  # Add translation
+    ],
+    name="augment",
+)
+
+
+def preprocess(x, y, training: bool):
+    x = tf.cast(x, tf.float32)
+    if training:
+        x = augment(x, training=True)
+    x = tf.keras.applications.efficientnet.preprocess_input(x)
+    # Convert labels to one-hot encoding for categorical classification
+    y = tf.one_hot(y, NUM_CLASSES)
+    return x, y
+
+
+AUTOTUNE = tf.data.AUTOTUNE
+train_ds = (
+    train_ds
+    .map(lambda x, y: preprocess(x, y, True), num_parallel_calls=AUTOTUNE)
+    .prefetch(AUTOTUNE)
+)
+valid_ds = (
+    valid_ds
+    .map(lambda x, y: preprocess(x, y, False), num_parallel_calls=AUTOTUNE)
+    .prefetch(AUTOTUNE)
+)
+test_ds = (
+    test_ds
+    .map(lambda x, y: preprocess(x, y, False), num_parallel_calls=AUTOTUNE)
+    .prefetch(AUTOTUNE)
+)
+
+balanced_train = train_ds
+balanced_val = valid_ds
+
+# Calculate class weights for handling imbalanced dataset
+print("\nCalculating class weights...")
+all_labels = []
+for img_file in Path(TRAIN_DIR).glob("*"):
+    label_file = Path(TRAIN_LABELS_DIR) / (img_file.stem + ".txt")
+    if label_file.exists():
+        class_idx = _get_class_from_yolo_label(label_file)
+        if class_idx is not None and class_idx < NUM_CLASSES:
+            all_labels.append(class_idx)
+
+class_weights = compute_class_weight('balanced', classes=np.unique(all_labels), y=all_labels)
+class_weight_dict = {i: class_weights[i] for i in range(len(class_weights))}
+print(f"Class weights: {class_weight_dict}")
+
+# Use EfficientNetB3 for better accuracy (larger and more powerful than MobileNetV2)
+base_model = EfficientNetB3(weights="imagenet", include_top=False, input_shape=(384, 384, 3))
+base_model.trainable = False
+
+# Improved model architecture
+model = models.Sequential(
+    [
+        base_model,
+        layers.GlobalAveragePooling2D(),
+        layers.BatchNormalization(),
+        layers.Dropout(0.3),
+        layers.Dense(512, activation="relu"),
+        layers.BatchNormalization(),
+        layers.Dropout(0.3),
+        layers.Dense(256, activation="relu"),
+        layers.BatchNormalization(),
+        layers.Dropout(0.2),
+        layers.Dense(NUM_CLASSES, activation="softmax"),
+    ]
+)
+
+callbacks = [
+    tf.keras.callbacks.EarlyStopping(
+        monitor="val_accuracy", 
+        mode="max", 
+        patience=8, 
+        restore_best_weights=True,
+        verbose=1
+    ),
+    tf.keras.callbacks.ReduceLROnPlateau(
+        monitor="val_loss", 
+        factor=0.5, 
+        patience=3, 
+        min_lr=1e-7,
+        verbose=1
+    ),
+    tf.keras.callbacks.ModelCheckpoint(
+        'backend/models/best_model.keras',
+        monitor='val_accuracy',
+        save_best_only=True,
+        mode='max',
+        verbose=1
+    ),
+]
+
+# Compile with class weights
+model.compile(
+    optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),  # Higher initial LR
+    loss=tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.05),
+    metrics=["accuracy", tf.keras.metrics.TopKCategoricalAccuracy(k=3, name="top_3_accuracy")],
+)
+
+
+print("\nPhase 1: Train classification head (20 epochs)")
+print("=" * 60)
+history1 = model.fit(
+    balanced_train,
+    validation_data=balanced_val,
+    epochs=20,
+    steps_per_epoch=STEPS_PER_EPOCH,
+    validation_steps=VAL_STEPS,
+    callbacks=callbacks,
+    class_weight=class_weight_dict,
+)
+
+print("\nPhase 2: Fine-tune top layers (15 epochs)")
+print("=" * 60)
+base_model.trainable = True
+# Freeze first 80% of layers, fine-tune top 20%
+freeze_until = int(len(base_model.layers) * 0.8)
+for layer in base_model.layers[:freeze_until]:
+    layer.trainable = False
+
+model.compile(
+    optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4),  # Lower LR for fine-tuning
+    loss=tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.05),
+    metrics=["accuracy", tf.keras.metrics.TopKCategoricalAccuracy(k=3, name="top_3_accuracy")],
+)
+
+history2 = model.fit(
+    balanced_train,
+    validation_data=balanced_val,
+    epochs=15,
+    steps_per_epoch=STEPS_PER_EPOCH,
+    validation_steps=VAL_STEPS,
+    callbacks=callbacks,
+    class_weight=class_weight_dict,
+)
+os.makedirs('backend/models', exist_ok=True)
+model.save('backend/models/orthovision_model.keras')
+
+# Save class indices
+class_indices = {cls: idx for idx, cls in enumerate(CLASS_NAMES)}
+labels_path = 'backend/models/orthovision_model.class_indices.json'
+with open(labels_path, 'w', encoding='utf-8') as f:
+    json.dump(class_indices, f, indent=2)
+
+print(f"\nModel saved to backend/models/orthovision_model.keras")
+print(f"Class indices saved to {labels_path}")
+print(f"Classes: {class_indices}")
+
+# Quick test evaluation
+print("\n" + "=" * 60)
+print("FINAL TEST SET EVALUATION")
+print("=" * 60)
+y_true = []
+y_pred = []
+y_pred_probs = []
+
+for xb, yb in test_ds:
+    pb = model.predict(xb, verbose=0)
+    y_true.extend(np.argmax(yb.numpy(), axis=1).tolist())
+    y_pred.extend(np.argmax(pb, axis=1).tolist())
+    y_pred_probs.extend(pb)
+
+y_true = np.array(y_true)
+y_pred = np.array(y_pred)
+y_pred_probs = np.array(y_pred_probs)
+
+from sklearn.metrics import classification_report, confusion_matrix
+
+print("\nClassification Report:")
+print(classification_report(y_true, y_pred, target_names=CLASS_NAMES, digits=4))
+
+print("\nConfusion Matrix:")
+cm = confusion_matrix(y_true, y_pred)
+print(cm)
+
+# Print per-class accuracy
+print("\nPer-Class Accuracy:")
+for i, class_name in enumerate(CLASS_NAMES):
+    class_mask = y_true == i
+    if class_mask.sum() > 0:
+        class_acc = (y_pred[class_mask] == i).sum() / class_mask.sum()
+        print(f"{class_name:20s}: {class_acc:.4f} ({(y_pred[class_mask] == i).sum()}/{class_mask.sum()})")
+
+print(f"\nOverall Test Accuracy: {np.mean(y_true == y_pred):.4f}")
+print(f"Top-3 Accuracy: {np.mean([y_true[i] in np.argsort(y_pred_probs[i])[-3:] for i in range(len(y_true))]):.4f}")

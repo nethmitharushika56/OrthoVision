@@ -1,4 +1,4 @@
-# Python
+# ================== Python ==================
 __pycache__/
 *.py[cod]
 *$py.class
@@ -10,60 +10,32 @@ build/
 *.egg
 *.whl
 
-# Virtual Environments
+# Virtual environments
 venv/
 env/
 ENV/
-.venv
-.env/
-*.lnk
+.venv/
 
-# Node.js
+# ================== Node / Frontend ==================
 node_modules/
-npm-debug.log
-yarn-error.log
-package-lock.json
-yarn.lock
-
-# Frontend Build
+frontend/node_modules/
 frontend/dist/
 frontend/build/
 .next/
 out/
 
-# Environment Variables
+# ================== Environment variables ==================
 .env
 .env.local
 .env.*.local
 
-# IDE & Editor
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-*.sublime-project
-*.sublime-workspace
-.project
-.pydevproject
-*.iml
-
-# OS
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-
-# Logs
+# ================== Logs ==================
 *.log
 *.log.*
 training_error.log
 training_output.log
 
-# ML Models (Large Files)
+# ================== ML Models (large files) ==================
 *.keras
 *.h5
 *.onnx
@@ -74,24 +46,28 @@ training_output.log
 backend/models/*.keras
 backend/models/*.h5
 
-# Uploads & Temporary
+# ================== Uploads / Generated ==================
 backend/uploads/*
 !backend/uploads/.gitkeep
-*.tmp
-*.bak
-heatmap_test.jpg
+backend/heatmap*
 
-# Cache
+# ================== IDE / Editor ==================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.iml
+
+# ================== OS ==================
+.DS_Store
+Thumbs.db
+ehthumbs.db
+
+# ================== Cache ==================
 .cache/
 .pytest_cache/
 .coverage
 htmlcov/
 .mypy_cache/
 .dmypy.json
-
-# Misc
-.venv
-.DS_Store
-*.pyc
-.env
-node_modules/
