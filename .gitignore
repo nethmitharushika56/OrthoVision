@@ -1,84 +1,54 @@
-# ============================================
 # Python
-# ============================================
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-env/
-venv/
-ENV/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
 *.egg-info/
-.installed.cfg
+dist/
+build/
 *.egg
-pip-log.txt
-pip-delete-this-directory.txt
+*.whl
 
-# ============================================
 # Virtual Environments
-# ============================================
-.venv
 venv/
+env/
 ENV/
-env.bak/
-venv.bak/
+.venv
+.env/
+*.lnk
 
-# ============================================
-# Node/Frontend
-# ============================================
+# Node.js
 node_modules/
 npm-debug.log
 yarn-error.log
-dist/
-build/
-.vite/
+package-lock.json
+yarn.lock
+
+# Frontend Build
+frontend/dist/
+frontend/build/
 .next/
 out/
 
-# ============================================
 # Environment Variables
-# ============================================
 .env
 .env.local
 .env.*.local
-.env.production.local
-.env.development.local
-.env.test.local
 
-# ============================================
-# IDE/Editor
-# ============================================
+# IDE & Editor
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
-.DS_Store
-Thumbs.db
-*.iml
-.sublime-project
-.sublime-workspace
+*.sublime-project
+*.sublime-workspace
 .project
 .pydevproject
-.settings/
-*.sublime-*
+*.iml
 
-# ============================================
-# OS Files
-# ============================================
+# OS
 .DS_Store
 .DS_Store?
 ._*
@@ -86,11 +56,14 @@ Thumbs.db
 .Trashes
 ehthumbs.db
 Thumbs.db
-*.lnk
 
-# ============================================
-# TensorFlow/ML Models (Large files)
-# ============================================
+# Logs
+*.log
+*.log.*
+training_error.log
+training_output.log
+
+# ML Models (Large Files)
 *.keras
 *.h5
 *.onnx
@@ -100,70 +73,25 @@ Thumbs.db
 *.ckpt
 backend/models/*.keras
 backend/models/*.h5
-!backend/models/class_indices.json
-!backend/models/orthovision_model.class_indices.json
-!backend/models/orthovision_type_model.class_indices.json
 
-# ============================================
-# Temporary/Upload Files
-# ============================================
+# Uploads & Temporary
 backend/uploads/*
 !backend/uploads/.gitkeep
-backend/heatmap*
 *.tmp
 *.bak
-*.swp
-*.swo
-*~
+heatmap_test.jpg
 
-# ============================================
-# Logs & Debug
-# ============================================
-*.log
-*.log.*
-training_error.log
-training_output.log
-debug_model_mapping.py
-
-# ============================================
-# Dataset
-# ============================================
-# Uncomment below to ignore large dataset files
-# dataset/
-# But keep the structure:
-# dataset/**/.gitkeep
-
-# ============================================
-# IDE Specific
-# ============================================
-.vscode/
-.idea/
-*.code-workspace
-
-# ============================================
-# macOS
-# ============================================
-.AppleDouble
-.LSOverride
-*.localized
-
-# ============================================
-# Windows
-# ============================================
-*.bat
-*.cmd
-*.exe
-*.com
-
-# ============================================
-# Misc
-# ============================================
-.cache
+# Cache
+.cache/
+.pytest_cache/
 .coverage
 htmlcov/
-.pytest_cache/
 .mypy_cache/
 .dmypy.json
-dmypy.json
-*.mo
-*.pot
+
+# Misc
+.venv
+.DS_Store
+*.pyc
+.env
+node_modules/
