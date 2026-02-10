@@ -1,0 +1,19 @@
+# Web Server
+flask
+flask-cors
+
+# Computer Vision & Image Processing
+opencv-python
+numpy
+Pillow
+scipy
+
+# Machine Learning (MobileNetV2)
+tensorflow>=2.10.0
+keras
+
+# Utilities
+requests
+python-multipart
+pyyaml
+scikit-learn

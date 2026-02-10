@@ -1,0 +1,37 @@
+<svg viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg">
+  <!-- Outer Circle -->
+  <circle cx="250" cy="250" r="185" fill="none" stroke="#003d87" stroke-width="12"/>
+  <circle cx="250" cy="250" r="170" fill="none" stroke="#003d87" stroke-width="8"/>
+  
+  <!-- Medical Cross -->
+  <rect x="320" y="60" width="50" height="140" fill="#003d87" rx="8"/>
+  <rect x="295" y="85" width="100" height="50" fill="#003d87" rx="8"/>
+  
+  <!-- Bone/Skeleton Lines -->
+  <g stroke="#1a1a1a" stroke-width="8" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Upper arm diagonal -->
+    <line x1="170" y1="120" x2="220" y2="180"/>
+    <!-- Lower arm diagonal -->
+    <line x1="220" y1="180" x2="180" y2="240"/>
+    
+    <!-- Joint circles -->
+    <circle cx="220" cy="180" r="18" fill="none" stroke="#1a1a1a" stroke-width="8"/>
+    <circle cx="200" cy="220" r="15" fill="none" stroke="#1a1a1a" stroke-width="7"/>
+    
+    <!-- Vertical spine -->
+    <line x1="240" y1="140" x2="240" y2="320"/>
+    
+    <!-- Ribs -->
+    <path d="M 240 160 Q 200 170 190 190" fill="none"/>
+    <path d="M 240 200 Q 195 215 180 240" fill="none"/>
+    <path d="M 240 250 Q 200 270 185 300" fill="none"/>
+  </g>
+  
+  <!-- Text: ORTHO VISION -->
+  <text x="250" y="400" font-family="Arial, sans-serif" font-size="48" font-weight="bold" text-anchor="middle" fill="#003d87">
+    ORTHO VISION
+  </text>
+  <text x="250" y="430" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="#003d87" letter-spacing="2">
+    AI BASED BONE FRACTURE DETECTION &amp; AR VISUALIZATION
+  </text>
+</svg>
