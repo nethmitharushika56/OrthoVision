@@ -51,6 +51,9 @@ backend/uploads/*
 !backend/uploads/.gitkeep
 backend/heatmap*
 
+# ================== Dataset ==================
+dataset/
+
 # ================== IDE / Editor ==================
 .vscode/
 .idea/
