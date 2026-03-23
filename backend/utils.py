@@ -96,10 +96,15 @@ def _get_prediction_from_softmax(softmax_output: np.ndarray, class_indices: dict
 
 @lru_cache(maxsize=1)
 def get_model(model_path: str = DEFAULT_MODEL_PATH):
+    # Try primary model path first, then fall back to type model
     if not os.path.exists(model_path):
-        raise FileNotFoundError(
-            f"Model file not found at {model_path}. Run training_model.py first."
-        )
+        type_model_path = DEFAULT_TYPE_MODEL_PATH
+        if os.path.exists(type_model_path):
+            model_path = type_model_path
+        else:
+            raise FileNotFoundError(
+                f"Model file not found at {model_path} or {type_model_path}. Run training first."
+            )
     model = tf.keras.models.load_model(model_path)
     # Some Keras/TF versions load Sequential models in an unbuilt state;
     # call once to ensure `inputs`/`output` are defined.
