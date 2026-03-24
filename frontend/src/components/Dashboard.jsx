@@ -4,10 +4,46 @@ import Uploader from './Uploader.jsx';
 import AnalysisView from './AnalysisView.jsx';
 import Bone3D from './Bone3D.jsx';
 
+const DEFAULT_MODEL_URL = '/models/handbone.glb';
+
+// Add additional mappings here as you add new model files under /public/models.
+const FRACTURE_MODEL_MAP = {
+  'avulsion fracture': '/models/Avulsion_fracture_shaded.glb',
+  'avulsionfracture': '/models/Avulsion_fracture_shaded.glb',
+  avulsion: '/models/Avulsion_fracture_shaded.glb',
+  'comminuted fracture': '/models/Comminuted_fracture_shaded.glb',
+  'comminutedfracture': '/models/Comminuted_fracture_shaded.glb',
+  'communited fracture': '/models/Comminuted_fracture_shaded.glb',
+  'communitedfracture': '/models/Comminuted_fracture_shaded.glb',
+  comminuted: '/models/Comminuted_fracture_shaded.glb',
+  'fracture dislocation': '/models/Fracture_dislocation_shaded.glb',
+  'fracturedislocation': '/models/Fracture_dislocation_shaded.glb',
+};
+
+const BUILT_IN_MODELS = [
+  '/models/handbone.glb',
+  '/models/Avulsion_fracture_shaded.glb',
+  '/models/Comminuted_fracture_shaded.glb',
+  '/models/Fracture_dislocation_shaded.glb',
+];
+
+const normalizeKey = (value = '') =>
+  value
+    .toString()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+
+const toModelLabel = (modelUrl) => {
+  const fileName = modelUrl.split('/').pop() || modelUrl;
+  return fileName.replace(/\.glb$/i, '');
+};
+
 function Dashboard({ user, onLogout }) {
   const [file, setFile] = useState(null);
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [availableModels, setAvailableModels] = useState(BUILT_IN_MODELS);
+  const [selectedModelUrl, setSelectedModelUrl] = useState('auto');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -15,6 +51,40 @@ function Dashboard({ user, onLogout }) {
       saveAnalysisToHistory(result);
     }
   }, [result]);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadModels = async () => {
+      try {
+        const response = await fetch('/models/models.json', { cache: 'no-store' });
+        if (!response.ok) {
+          throw new Error('Model manifest not found');
+        }
+
+        const files = await response.json();
+        if (!Array.isArray(files)) {
+          throw new Error('Invalid models.json format');
+        }
+
+        const glbUrls = files
+          .filter((name) => typeof name === 'string' && name.toLowerCase().endsWith('.glb'))
+          .map((name) => `/models/${name}`);
+
+        if (active && glbUrls.length > 0) {
+          setAvailableModels(Array.from(new Set([...BUILT_IN_MODELS, ...glbUrls])));
+        }
+      } catch (error) {
+        console.warn('Using built-in model list:', error.message);
+      }
+    };
+
+    loadModels();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const handleAnalyze = async (uploadedFile) => {
     setFile(uploadedFile);
@@ -89,6 +159,36 @@ function Dashboard({ user, onLogout }) {
       console.error('❌ Error saving analysis to history:', error);
       alert('Warning: Analysis result was not saved to history. Please check your browser storage.');
     }
+  };
+
+  const getModelUrlForResult = (analysisResult) => {
+    if (selectedModelUrl !== 'auto') {
+      return selectedModelUrl;
+    }
+
+    if (!analysisResult?.is_fractured) {
+      return DEFAULT_MODEL_URL;
+    }
+
+    const rawFracture = analysisResult.fracture_type || analysisResult.predicted_class || '';
+    const fractureKey = rawFracture.toString().trim().toLowerCase();
+    const normalizedFracture = normalizeKey(rawFracture);
+
+    const mapped = FRACTURE_MODEL_MAP[fractureKey] || FRACTURE_MODEL_MAP[normalizedFracture];
+    if (mapped) {
+      return mapped;
+    }
+
+    const fuzzyMatched = availableModels.find((modelUrl) => {
+      const modelNameNormalized = normalizeKey(toModelLabel(modelUrl));
+      return modelNameNormalized.includes(normalizedFracture) || normalizedFracture.includes(modelNameNormalized);
+    });
+
+    if (fuzzyMatched) {
+      return fuzzyMatched;
+    }
+
+    return DEFAULT_MODEL_URL;
   };
 
   return (
@@ -177,9 +277,25 @@ function Dashboard({ user, onLogout }) {
                 <div className="card__header">
                   <h2 className="card__title">3D Bone Model</h2>
                   {result.is_fractured && <span className="fracture-badge">Fracture Detected</span>}
+                  <div className="model-picker-row">
+                    <label className="model-picker-label" htmlFor="model-picker">Model</label>
+                    <select
+                      id="model-picker"
+                      className="model-picker-select"
+                      value={selectedModelUrl}
+                      onChange={(e) => setSelectedModelUrl(e.target.value)}
+                    >
+                      <option value="auto">Auto (match detected fracture)</option>
+                      {availableModels.map((modelUrl) => (
+                        <option key={modelUrl} value={modelUrl}>
+                          {toModelLabel(modelUrl)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
                 <Bone3D 
-                  modelUrl={'/models/handbone.glb'}
+                  modelUrl={getModelUrlForResult(result)}
                   isFractured={result.is_fractured}
                   bbox={result.bbox}
                 />
