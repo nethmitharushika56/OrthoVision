@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Uploader from './Uploader.jsx';
 import AnalysisView from './AnalysisView.jsx';
@@ -9,6 +9,12 @@ function Dashboard({ user, onLogout }) {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (result) {
+      saveAnalysisToHistory(result);
+    }
+  }, [result]);
 
   const handleAnalyze = async (uploadedFile) => {
     setFile(uploadedFile);
@@ -63,6 +69,28 @@ function Dashboard({ user, onLogout }) {
     navigate('/login');
   };
 
+  const saveAnalysisToHistory = (result) => {
+    try {
+      const analysis = {
+        ...result,
+        timestamp: new Date().toISOString(),
+        patientId: localStorage.getItem('orthovision_patient_id') || 'Unknown',
+        id: Date.now() // Add unique ID for each analysis
+      };
+
+      const savedAnalyses = localStorage.getItem('orthovision_analyses');
+      const analyses = savedAnalyses ? JSON.parse(savedAnalyses) : [];
+      analyses.push(analysis);
+      localStorage.setItem('orthovision_analyses', JSON.stringify(analyses));
+      
+      console.log('✅ Analysis saved to history:', analysis);
+      console.log('📊 Total analyses:', analyses.length);
+    } catch (error) {
+      console.error('❌ Error saving analysis to history:', error);
+      alert('Warning: Analysis result was not saved to history. Please check your browser storage.');
+    }
+  };
+
   return (
     <div className="app">
       <header className="app__header">
@@ -75,6 +103,30 @@ function Dashboard({ user, onLogout }) {
         </div>
         
         <div className="header-actions">
+          <div className="nav-buttons">
+            <button 
+              onClick={() => navigate('/history')} 
+              className="button button--nav"
+              title="View Analysis History"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10"/>
+                <polyline points="12 6 12 12 16 14"/>
+              </svg>
+              History
+            </button>
+            <button 
+              onClick={() => navigate('/settings')} 
+              className="button button--nav"
+              title="Settings & Profile"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="1"/>
+                <path d="M12 1v6m0 6v6M4.22 4.22l4.24 4.24m5.08 5.08l4.24 4.24M1 12h6m6 0h6M4.22 19.78l4.24-4.24m5.08-5.08l4.24-4.24"/>
+              </svg>
+              Settings
+            </button>
+          </div>
           <div className="user-menu">
             <div className="user-avatar">{user?.name?.charAt(0).toUpperCase() || 'U'}</div>
             <div className="user-info">
@@ -110,7 +162,7 @@ function Dashboard({ user, onLogout }) {
               <div className="card">
                 <AnalysisView result={result} />
                 
-                <div style={{ padding: '20px', borderTop: '1px solid var(--border)' }}>
+                <div style={{ padding: '20px', borderTop: '1px solid var(--border)', display: 'flex', gap: '12px', flexDirection: 'column' }}>
                   <button
                     onClick={() => setResult(null)}
                     className="button button--secondary"

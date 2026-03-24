@@ -4,6 +4,9 @@ import LandingPage from './LandingPage.jsx';
 import Login from './Login.jsx';
 import SignUp from './SignUp.jsx';
 import Dashboard from './Dashboard.jsx';
+import Settings from './Settings.jsx';
+import History from './History.jsx';
+import TermsAndConditions from './TermsAndConditions.jsx';
 
 function App() {
   const [user, setUser] = useState(null);
@@ -28,6 +31,10 @@ function App() {
 
   const handleLogout = () => {
     setUser(null);
+  };
+
+  const handleUpdateUser = (updatedUser) => {
+    setUser(updatedUser);
   };
 
   if (loading) {
@@ -57,6 +64,22 @@ function App() {
         <Route 
           path="/dashboard" 
           element={user ? <Dashboard user={user} onLogout={handleLogout} /> : <Navigate to="/login" />} 
+        />
+        <Route 
+          path="/settings" 
+          element={user ? <Settings user={user} onLogout={handleLogout} onUpdateUser={handleUpdateUser} /> : <Navigate to="/login" />} 
+        />
+        <Route 
+          path="/history" 
+          element={user ? <History user={user} /> : <Navigate to="/login" />} 
+        />
+        <Route 
+          path="/terms" 
+          element={<TermsAndConditions />} 
+        />
+        <Route 
+          path="/privacy" 
+          element={<TermsAndConditions />} 
         />
       </Routes>
     </Router>
