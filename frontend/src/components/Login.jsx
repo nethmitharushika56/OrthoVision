@@ -76,7 +76,7 @@ const Login = ({ onLogin }) => {
   return (
     <div className="auth-container">
       <div className="auth-layout">
-        <div className="auth-panel">
+        <div className="auth-panel auth-panel--card-host">
           <div className="auth-card auth-card--wide">
             <div className="auth-header">
               <img src="/ortho-vision-logo.jpeg" alt="OrthoVision Logo" className="brand__logo auth-logo" style={{width: '80px', height: 'auto'}} />

@@ -12,7 +12,7 @@ function OpeningPage() {
 
       <div className="opening-content">
         <div className="opening-logo-wrap">
-          <img src="/ortho-vision-logo.svg" alt="OrthoVision logo" className="opening-logo" />
+          <img src="/ortho-vision-logo.jpeg" alt="OrthoVision logo" className="opening-logo" />
         </div>
 
         <p className="opening-kicker">AI Radiology Assistant</p>

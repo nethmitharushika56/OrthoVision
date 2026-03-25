@@ -1071,10 +1071,36 @@ body[data-theme='light'] .button--secondary {
 		linear-gradient(180deg, var(--bg0), var(--bg1));
 }
 
+.auth-layout {
+	width: min(1160px, 100%);
+	display: grid;
+	grid-template-columns: minmax(360px, 1fr) 1px minmax(300px, 400px);
+	align-items: center;
+	gap: 28px;
+}
+
+.auth-divider-rail {
+	width: 1px;
+	height: min(72vh, 640px);
+	justify-self: center;
+	background: linear-gradient(180deg, rgba(114, 174, 255, 0), rgba(114, 174, 255, 0.35), rgba(114, 174, 255, 0));
+}
+
 .auth-container--split {
-	justify-content: space-between;
-	gap: 48px;
-	padding: 34px 40px;
+	width: min(1160px, 100%);
+	margin: 0 auto;
+	display: grid;
+	grid-template-columns: minmax(320px, 520px) minmax(360px, 640px);
+	justify-content: center;
+	align-items: stretch;
+	gap: 40px;
+	padding: 34px 20px;
+}
+
+.auth-container--split .auth-panel,
+.auth-container--split .auth-card--signup-modern {
+	width: 100%;
+	max-width: none;
 }
 
 .auth-panel {
@@ -1091,6 +1117,19 @@ body[data-theme='light'] .button--secondary {
 	display: flex;
 	flex-direction: column;
 	gap: 14px;
+}
+
+.auth-panel--card-host {
+	width: 100%;
+	min-height: auto;
+	padding: 0;
+	border: none;
+	border-radius: 0;
+	background: transparent;
+	box-shadow: none;
+	display: flex;
+	align-items: center;
+	justify-content: center;
 }
 
 .auth-panel__logo-wrap {
@@ -1110,12 +1149,26 @@ body[data-theme='light'] .button--secondary {
 	height: auto;
 }
 
+.auth-panel__logo-wrap--signup {
+	width: 68px;
+	height: 68px;
+	margin: 0 auto;
+}
+
+.auth-panel__logo--signup {
+	width: 52px;
+}
+
 .auth-panel__title {
 	margin: 16px 0 0;
 	font-size: 38px;
 	line-height: 1;
 	font-weight: 800;
 	letter-spacing: -0.02em;
+}
+
+.auth-panel__title--signup {
+	text-align: center;
 }
 
 .auth-panel__subtitle {
@@ -1195,6 +1248,10 @@ body[data-theme='light'] .button--secondary {
 		0 20px 60px rgba(0, 0, 0, 0.4),
 		0 0 1px rgba(255, 255, 255, 0.1) inset;
 	backdrop-filter: blur(20px);
+}
+
+.auth-panel--card-host .auth-card {
+	max-width: 640px;
 }
 
 .auth-card--wide {
@@ -1754,6 +1811,7 @@ select.form-input option {
 
 @media (max-width: 1024px) {
 	.auth-container--split {
+		display: flex;
 		flex-direction: column;
 		padding: 22px 18px;
 		gap: 24px;
@@ -1802,6 +1860,11 @@ select.form-input option {
 }
 
 @media (max-width: 768px) {
+	.opening-logo {
+		width: 108px;
+		height: 108px;
+	}
+
 	.auth-card--signup-modern {
 		padding: 24px 18px;
 	}
@@ -1908,6 +1971,42 @@ select.form-input option {
 	text-align: center;
 	gap: 12px;
 	animation: opening-rise 0.8s cubic-bezier(0.2, 0.75, 0.25, 1) both;
+}
+
+.opening-logo-wrap {
+	width: 100%;
+	display: flex;
+	justify-content: center;
+	margin: 4px 0 6px;
+}
+
+.opening-logo {
+	width: 128px;
+	height: 128px;
+	object-fit: cover;
+	object-position: center;
+	border-radius: 26px;
+	border: 1px solid rgba(120, 178, 255, 0.42);
+	box-shadow: 0 18px 40px rgba(6, 16, 46, 0.5), 0 0 0 8px rgba(58, 132, 255, 0.08);
+}
+
+.opening-title {
+	margin: 2px 0 4px;
+	font-size: clamp(42px, 6vw, 72px);
+	font-weight: 800;
+	line-height: 1.04;
+	letter-spacing: -0.02em;
+	text-align: center;
+	text-shadow: 0 8px 28px rgba(1, 10, 36, 0.42);
+}
+
+.opening-subtitle {
+	max-width: 620px;
+	margin: 2px auto 6px;
+	font-size: clamp(16px, 2.2vw, 21px);
+	line-height: 1.55;
+	color: rgba(226, 238, 255, 0.88);
+	text-align: center;
 }
 
 .landing-logo-container {
