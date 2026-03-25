@@ -1,6 +1,7 @@
 # Web Server
 flask
 flask-cors
+pymongo
 
 # Computer Vision & Image Processing
 opencv-python
