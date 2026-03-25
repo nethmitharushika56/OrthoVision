@@ -21,20 +21,21 @@ DEFAULT_HEATMAP_PATH = os.path.join(BACKEND_DIR, "uploads", "latest_heatmap.jpg"
 MODEL_INPUT_SIZE = 384
 MIN_LOCALIZATION_CONF = float(os.environ.get("MIN_LOCALIZATION_CONF", "0.25"))
 # Type-only model (no explicit normal class) needs strict gating to avoid false positives.
-TYPE_MIN_CONF = float(os.environ.get("TYPE_MIN_CONF", "0.30"))
-TYPE_MIN_MARGIN = float(os.environ.get("TYPE_MIN_MARGIN", "0.01"))
+TYPE_MIN_CONF = float(os.environ.get("TYPE_MIN_CONF", "0.60"))
+TYPE_MIN_MARGIN = float(os.environ.get("TYPE_MIN_MARGIN", "0.08"))
+BINARY_MIN_MARGIN = float(os.environ.get("BINARY_MIN_MARGIN", "0.08"))
 MIN_LOCALIZATION_QUALITY = float(os.environ.get("MIN_LOCALIZATION_QUALITY", "0.30"))
 MIN_HEATMAP_CONF = float(os.environ.get("MIN_HEATMAP_CONF", "0.30"))
 MIN_HEATMAP_MARGIN = float(os.environ.get("MIN_HEATMAP_MARGIN", "0.05"))
 
 
 def _fracture_threshold() -> float:
-    # Default 0.50 matches standard sigmoid binary classification.
+    # Use a conservative default to reduce false positives on normal images.
     # Can be overridden via environment variable.
     try:
-        v = float(os.environ.get("FRACTURE_THRESHOLD", "0.50"))
+        v = float(os.environ.get("FRACTURE_THRESHOLD", "0.60"))
     except Exception:
-        v = 0.50
+        v = 0.60
     return max(0.01, min(0.99, v))
 
 
@@ -530,48 +531,77 @@ def predict_fracture(model: tf.keras.Model, img_path: str):
     img_array, preprocess_meta = _preprocess_image(img_path)
     type_model = get_type_model()
     type_indices = _load_type_class_indices() if type_model is not None else {}
-    
-    print(f"\n[PREDICT] File: {img_path}")
-    
-    # If only a type model is available (no explicit "normal" class),
-    # apply conservative gating to reduce false positives on non-fracture images.
-    if type_model is not None and type_indices:
-        # Use type model for classification
-        fracture_type, fracture_type_confidence, type_all_probabilities = _predict_top1(
-            type_model, img_array, type_indices
-        )
 
-        top2_margin = _top2_margin(type_all_probabilities)
-        is_fractured = bool(
-            float(fracture_type_confidence) >= TYPE_MIN_CONF
-            and float(top2_margin) >= TYPE_MIN_MARGIN
-        )
-        confidence = fracture_type_confidence
-        predicted_class = fracture_type if is_fractured else "normal"
-        
+    print(f"\n[PREDICT] File: {img_path}")
+
+    # Primary gate: prefer explicit binary fracture-vs-normal model if available.
+    softmax_output = model.predict(img_array, verbose=0)[0]
+    class_indices = _load_class_indices()
+    threshold = _fracture_threshold()
+
+    fractured_idx = int(class_indices.get("fractured", 1))
+    normal_idx = int(class_indices.get("normal", 0))
+    binary_model_usable = (
+        len(softmax_output) == 2
+        and 0 <= fractured_idx < len(softmax_output)
+        and 0 <= normal_idx < len(softmax_output)
+    )
+
+    if binary_model_usable:
+        fracture_prob = float(softmax_output[fractured_idx])
+        normal_prob = float(softmax_output[normal_idx])
+        margin = float(fracture_prob - normal_prob)
+
+        is_fractured = bool(fracture_prob >= threshold and margin >= BINARY_MIN_MARGIN)
+        confidence = float(fracture_prob if is_fractured else normal_prob)
+
         print(
-            f"[PREDICT] Type={fracture_type} conf={fracture_type_confidence:.4f} "
-            f"margin={top2_margin:.4f} gate_conf={TYPE_MIN_CONF:.2f} gate_margin={TYPE_MIN_MARGIN:.2f} "
+            f"[PREDICT] Binary gate: normal={normal_prob:.4f} fractured={fracture_prob:.4f} "
+            f"margin={margin:.4f} threshold={threshold:.2f} min_margin={BINARY_MIN_MARGIN:.2f} "
             f"is_fractured={is_fractured}"
         )
-        print(f"[PREDICT] All probabilities: {type_all_probabilities}")
-        
+
+        if not is_fractured:
+            return {
+                "is_fractured": False,
+                "confidence": float(confidence),
+                "fracture_probability": float(fracture_prob),
+                "predicted_class": "normal",
+                "bone_part": "normal",
+                "fracture_type": None,
+                "fracture_type_confidence": None,
+                "bbox": None,
+                "heatmap_generated": False,
+                "heatmap_url": None,
+                "localization_hidden_reason": "Binary gate classified as normal",
+                "all_probabilities": {cls: float(softmax_output[idx]) for cls, idx in class_indices.items() if 0 <= idx < len(softmax_output)},
+                "type_probabilities": {},
+            }
+
+        # Binary says fractured: refine fracture type if type model is available.
+        fracture_type = "fractured"
+        fracture_type_confidence = None
+        type_all_probabilities = {}
         bbox_norm = None
         heatmap_generated = False
-        localization_hidden_reason = None
-        
-        if is_fractured:
+        localization_hidden_reason = "Type model unavailable"
+
+        if type_model is not None and type_indices:
             try:
-                # Grad-CAM from the type model
+                fracture_type, fracture_type_confidence, type_all_probabilities = _predict_top1(
+                    type_model, img_array, type_indices
+                )
+                top2_margin = _top2_margin(type_all_probabilities)
                 target_idx = type_indices.get(fracture_type)
                 if target_idx is None:
                     target_idx = int(np.argmax(type_model.predict(img_array, verbose=0)[0]))
-                print(f"[PREDICT] Generating heatmap for {fracture_type} (idx={target_idx})")
+
                 heatmap = _make_gradcam_heatmap(img_array, type_model, target_class_idx=int(target_idx))
-                _, bbox_norm, loc_quality = _save_gradcam_overlay(img_path, heatmap, DEFAULT_HEATMAP_PATH, meta=preprocess_meta)
+                _, bbox_norm, loc_quality = _save_gradcam_overlay(
+                    img_path, heatmap, DEFAULT_HEATMAP_PATH, meta=preprocess_meta
+                )
                 heatmap_generated = os.path.exists(DEFAULT_HEATMAP_PATH)
-                # Suppress localization aggressively unless confidence, margin,
-                # and map quality are all strong.
+
                 gate_conf_threshold = max(MIN_LOCALIZATION_CONF, MIN_HEATMAP_CONF)
                 if (
                     float(fracture_type_confidence) < gate_conf_threshold
@@ -581,79 +611,79 @@ def predict_fracture(model: tf.keras.Model, img_path: str):
                     bbox_norm = None
                     heatmap_generated = False
                     localization_hidden_reason = "Localization confidence is low for this image"
-                print(f"[PREDICT] Heatmap saved successfully at {DEFAULT_HEATMAP_PATH}")
+                else:
+                    localization_hidden_reason = None
             except Exception as e:
-                print(f"[PREDICT] Grad-CAM failed: {e}")
-                import traceback
-                traceback.print_exc()
+                print(f"[PREDICT] Type/Grad-CAM step failed: {e}")
                 bbox_norm = None
                 heatmap_generated = False
                 localization_hidden_reason = "Heatmap generation failed"
-        else:
-            bbox_norm = None
-            heatmap_generated = False
-            localization_hidden_reason = "Not classified as fractured"
-        
+
         return {
-            "is_fractured": bool(is_fractured),
-            "confidence": float(confidence if is_fractured else (1.0 - confidence)),
-            "fracture_probability": float(confidence if is_fractured else 0.0),
-            "predicted_class": predicted_class,
-            "bone_part": fracture_type if is_fractured else "normal",
-            "fracture_type": fracture_type if is_fractured else None,
-            "fracture_type_confidence": float(fracture_type_confidence) if is_fractured else None,
+            "is_fractured": True,
+            "confidence": float(confidence),
+            "fracture_probability": float(fracture_prob),
+            "predicted_class": "fractured",
+            "bone_part": fracture_type,
+            "fracture_type": fracture_type if fracture_type != "fractured" else None,
+            "fracture_type_confidence": float(fracture_type_confidence) if fracture_type_confidence is not None else None,
             "bbox": bbox_norm,
             "heatmap_generated": bool(heatmap_generated),
             "heatmap_url": "/get_heatmap" if heatmap_generated else None,
             "localization_hidden_reason": localization_hidden_reason,
-            "warning": "Type-only model mode: conservative gating enabled for non-fracture safety",
-            "all_probabilities": {},
-            "type_probabilities": type_all_probabilities if is_fractured else {},
+            "all_probabilities": {cls: float(softmax_output[idx]) for cls, idx in class_indices.items() if 0 <= idx < len(softmax_output)},
+            "type_probabilities": type_all_probabilities,
         }
-    else:
-        # Fallback to binary model if type model not available
-        softmax_output = model.predict(img_array, verbose=0)[0]
-        class_indices = _load_class_indices()
-        threshold = _fracture_threshold()
 
-        def _p(name: str) -> float:
-            idx = class_indices.get(name)
-            if idx is None:
-                return 0.0
-            if idx < 0 or idx >= len(softmax_output):
-                return 0.0
-            return float(softmax_output[idx])
-        
-        print(f"[PREDICT] Softmax: normal={_p('normal'):.4f}, fractured={_p('fractured'):.4f}")
-        print(f"[PREDICT] Class indices: {class_indices}")
-        
-        fractured_idx = int(class_indices.get("fractured", 1))
-        normal_idx = int(class_indices.get("normal", 0))
+    # Fallback: only type model behavior (no explicit normal class available).
+    if type_model is not None and type_indices:
+        fracture_type, fracture_type_confidence, type_all_probabilities = _predict_top1(
+            type_model, img_array, type_indices
+        )
 
-        fracture_prob = float(softmax_output[fractured_idx]) if 0 <= fractured_idx < len(softmax_output) else 0.0
-        normal_prob = float(softmax_output[normal_idx]) if 0 <= normal_idx < len(softmax_output) else 0.0
+        top2_margin = _top2_margin(type_all_probabilities)
+        is_fractured = bool(
+            float(fracture_type_confidence) >= TYPE_MIN_CONF
+            and float(top2_margin) >= TYPE_MIN_MARGIN
+        )
+        confidence = float(fracture_type_confidence if is_fractured else (1.0 - fracture_type_confidence))
 
-        is_fractured = bool(fracture_prob >= threshold)
-        predicted_class = "fractured" if is_fractured else "normal"
-        confidence = float(fracture_prob if is_fractured else normal_prob)
-        
         print(
-            f"[PREDICT] Result: is_fractured={is_fractured}, class={predicted_class}, "
-            f"conf={confidence:.4f} (threshold={threshold:.2f})"
+            f"[PREDICT] Type-only gate: type={fracture_type} conf={fracture_type_confidence:.4f} "
+            f"margin={top2_margin:.4f} gate_conf={TYPE_MIN_CONF:.2f} gate_margin={TYPE_MIN_MARGIN:.2f} "
+            f"is_fractured={is_fractured}"
         )
 
         return {
             "is_fractured": bool(is_fractured),
             "confidence": float(confidence),
-            "fracture_probability": float(fracture_prob),
-            "predicted_class": predicted_class,
-            "bone_part": "fractured" if is_fractured else "normal",
-            "fracture_type": None,
-            "fracture_type_confidence": None,
+            "fracture_probability": float(fracture_type_confidence if is_fractured else 0.0),
+            "predicted_class": fracture_type if is_fractured else "normal",
+            "bone_part": fracture_type if is_fractured else "normal",
+            "fracture_type": fracture_type if is_fractured else None,
+            "fracture_type_confidence": float(fracture_type_confidence) if is_fractured else None,
             "bbox": None,
             "heatmap_generated": False,
             "heatmap_url": None,
-            "localization_hidden_reason": "Binary model path does not generate localization",
-            "all_probabilities": {cls: float(softmax_output[idx]) for cls, idx in class_indices.items()},
-            "type_probabilities": {},
+            "localization_hidden_reason": "Type-only model mode",
+            "warning": "Type-only model mode: conservative gating enabled for non-fracture safety",
+            "all_probabilities": {},
+            "type_probabilities": type_all_probabilities if is_fractured else {},
         }
+
+    # Last-resort output if no type model and non-binary model output.
+    return {
+        "is_fractured": False,
+        "confidence": 0.0,
+        "fracture_probability": 0.0,
+        "predicted_class": "normal",
+        "bone_part": "normal",
+        "fracture_type": None,
+        "fracture_type_confidence": None,
+        "bbox": None,
+        "heatmap_generated": False,
+        "heatmap_url": None,
+        "localization_hidden_reason": "No compatible classifier outputs available",
+        "all_probabilities": {},
+        "type_probabilities": {},
+    }

@@ -1,14 +1,16 @@
-import React, { useState } from 'react';
-
-const DEFAULT_MODEL = '/models/Comminuted_fracture_shaded.glb';
+import React, { useEffect, useState } from 'react';
 
 const Bone3D = ({ modelUrl }) => {
-  const activeModel = modelUrl || DEFAULT_MODEL;
+  const activeModel = modelUrl || '';
   const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [activeModel]);
 
   return (
     <div className="viewer">
-      {!failed ? (
+      {activeModel && !failed ? (
         <model-viewer
           src={activeModel}
           camera-controls
@@ -22,10 +24,12 @@ const Bone3D = ({ modelUrl }) => {
           onError={() => setFailed(true)}
         ></model-viewer>
       ) : (
-        <div className="viewer__empty">Failed to load 3D model.</div>
+        <div className="viewer__empty">
+          {failed ? 'Failed to load 3D model.' : 'No fracture detected. No 3D model auto-selected.'}
+        </div>
       )}
 
-      <div className="viewer__controls-hint">Drag to rotate • Scroll to zoom</div>
+      {activeModel && !failed && <div className="viewer__controls-hint">Drag to rotate • Scroll to zoom</div>}
     </div>
   );
 };

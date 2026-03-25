@@ -144,13 +144,14 @@ const getFinalFractureType = (analysisResult) => {
 };
 
 const resolveAutoModelUrl = (analysisResult, models) => {
+  // Auto mode must not show a fracture model when no fracture is detected.
   if (!analysisResult?.is_fractured) {
-    return DEFAULT_MODEL_URL;
+    return null;
   }
 
   const rawFracture = getFinalFractureType(analysisResult);
   if (!rawFracture) {
-    return DEFAULT_MODEL_URL;
+    return null;
   }
 
   const fractureKey = rawFracture.toString().trim().toLowerCase();
@@ -166,7 +167,7 @@ const resolveAutoModelUrl = (analysisResult, models) => {
     return modelNameNormalized.includes(normalizedFracture) || normalizedFracture.includes(modelNameNormalized);
   });
 
-  return fuzzyMatched || DEFAULT_MODEL_URL;
+  return fuzzyMatched || null;
 };
 
 function Dashboard({ user, onLogout }) {
@@ -308,7 +309,7 @@ function Dashboard({ user, onLogout }) {
 
   const modelOptions = buildModelOptions(availableModels);
   const autoMatchedModelUrl = resolveAutoModelUrl(result, availableModels);
-  const autoSourceFractureType = getFinalFractureType(result) || 'N/A';
+  const autoSourceFractureType = result?.is_fractured ? getFinalFractureType(result) || 'Unknown type' : 'No fracture';
 
   return (
     <div className="app">
@@ -415,7 +416,9 @@ function Dashboard({ user, onLogout }) {
                       onChange={(e) => setSelectedModelUrl(e.target.value)}
                     >
                       <option value="auto">
-                        Auto (from output type: {autoSourceFractureType}) to {toModelLabel(autoMatchedModelUrl)}
+                        {autoMatchedModelUrl
+                          ? `Auto (from output type: ${autoSourceFractureType}) to ${toModelLabel(autoMatchedModelUrl)}`
+                          : 'Auto (No fracture detected - no model selected)'}
                       </option>
                       {modelOptions.map(({ label, url }) => (
                         <option key={url} value={url}>

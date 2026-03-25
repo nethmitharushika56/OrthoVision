@@ -135,6 +135,21 @@ body[data-theme='light'] .form-input::placeholder {
 	color: rgba(10, 30, 36, 0.5);
 }
 
+body[data-theme='light'] .model-picker-label {
+	color: rgba(255, 255, 255, 0.86);
+}
+
+body[data-theme='light'] .model-picker-select {
+	color: #ffffff;
+	background: rgba(11, 20, 48, 0.92);
+	border-color: rgba(120, 170, 255, 0.35);
+}
+
+body[data-theme='light'] .model-picker-select option {
+	color: #ffffff;
+	background: #1a2a4d;
+}
+
 body[data-theme='light'] .profile-card,
 body[data-theme='light'] .security-card,
 body[data-theme='light'] .preferences-card {
@@ -2009,6 +2024,22 @@ select.form-input option {
 	text-align: center;
 }
 
+.landing-page {
+	min-height: 100vh;
+	display: flex;
+	justify-content: center;
+	padding: 56px 24px 72px;
+}
+
+.landing-content {
+	width: min(1200px, 100%);
+	margin: 0 auto;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	text-align: center;
+}
+
 .landing-logo-container {
 	margin-bottom: 40px;
 	display: flex;
@@ -2063,7 +2094,7 @@ select.form-input option {
 	display: grid;
 	grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
 	gap: 28px;
-	margin: 0 0 80px;
+	margin: 0 auto 80px;
 	width: 100%;
 	max-width: 1100px;
 }
@@ -2126,7 +2157,7 @@ select.form-input option {
 	display: grid;
 	grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
 	gap: 24px;
-	margin: 0 0 80px;
+	margin: 0 auto 80px;
 	width: 100%;
 	max-width: 800px;
 }
@@ -2181,7 +2212,7 @@ select.form-input option {
 	gap: 20px;
 	justify-content: center;
 	align-items: center;
-	margin: 0 0 80px;
+	margin: 0 auto 80px;
 	flex-wrap: wrap;
 }
 
@@ -2189,6 +2220,15 @@ select.form-input option {
 	padding: 16px 48px;
 	font-size: 17px;
 	font-weight: 700;
+	width: clamp(220px, 28vw, 280px);
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.landing-actions .button--primary,
+.landing-actions .landing-button--secondary {
+	width: clamp(220px, 28vw, 280px);
 }
 
 .landing-button--secondary {
