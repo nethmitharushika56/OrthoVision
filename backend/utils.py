@@ -21,12 +21,12 @@ DEFAULT_HEATMAP_PATH = os.path.join(BACKEND_DIR, "uploads", "latest_heatmap.jpg"
 MODEL_INPUT_SIZE = 384
 MIN_LOCALIZATION_CONF = float(os.environ.get("MIN_LOCALIZATION_CONF", "0.25"))
 # Type-only model (no explicit normal class) needs strict gating to avoid false positives.
-TYPE_MIN_CONF = float(os.environ.get("TYPE_MIN_CONF", "0.60"))
+TYPE_MIN_CONF = float(os.environ.get("TYPE_MIN_CONF", "0.50"))
 TYPE_MIN_MARGIN = float(os.environ.get("TYPE_MIN_MARGIN", "0.08"))
 BINARY_MIN_MARGIN = float(os.environ.get("BINARY_MIN_MARGIN", "0.08"))
-MIN_LOCALIZATION_QUALITY = float(os.environ.get("MIN_LOCALIZATION_QUALITY", "0.30"))
-MIN_HEATMAP_CONF = float(os.environ.get("MIN_HEATMAP_CONF", "0.30"))
-MIN_HEATMAP_MARGIN = float(os.environ.get("MIN_HEATMAP_MARGIN", "0.05"))
+MIN_LOCALIZATION_QUALITY = float(os.environ.get("MIN_LOCALIZATION_QUALITY", "0.15"))
+MIN_HEATMAP_CONF = float(os.environ.get("MIN_HEATMAP_CONF", "0.20"))
+MIN_HEATMAP_MARGIN = float(os.environ.get("MIN_HEATMAP_MARGIN", "0.03"))
 
 
 def _fracture_threshold() -> float:
@@ -603,6 +603,17 @@ def predict_fracture(model: tf.keras.Model, img_path: str):
                 heatmap_generated = os.path.exists(DEFAULT_HEATMAP_PATH)
 
                 gate_conf_threshold = max(MIN_LOCALIZATION_CONF, MIN_HEATMAP_CONF)
+                
+                print(
+                    f"[PREDICT] Heatmap generation check: "
+                    f"type_conf={float(fracture_type_confidence):.4f} "
+                    f"gate_threshold={gate_conf_threshold:.4f} "
+                    f"top2_margin={float(top2_margin):.4f} "
+                    f"min_margin={MIN_HEATMAP_MARGIN:.4f} "
+                    f"loc_quality={float(loc_quality):.4f} "
+                    f"min_quality={MIN_LOCALIZATION_QUALITY:.4f}"
+                )
+                
                 if (
                     float(fracture_type_confidence) < gate_conf_threshold
                     or float(top2_margin) < MIN_HEATMAP_MARGIN
@@ -611,8 +622,10 @@ def predict_fracture(model: tf.keras.Model, img_path: str):
                     bbox_norm = None
                     heatmap_generated = False
                     localization_hidden_reason = "Localization confidence is low for this image"
+                    print(f"[PREDICT] Heatmap suppressed: {localization_hidden_reason}")
                 else:
                     localization_hidden_reason = None
+                    print(f"[PREDICT] Heatmap approved for display")
             except Exception as e:
                 print(f"[PREDICT] Type/Grad-CAM step failed: {e}")
                 bbox_norm = None
@@ -654,6 +667,45 @@ def predict_fracture(model: tf.keras.Model, img_path: str):
             f"is_fractured={is_fractured}"
         )
 
+        bbox_norm = None
+        heatmap_generated = False
+        localization_hidden_reason = "Type-only model mode"
+
+        # When using only the type model, still generate Grad-CAM for fractured predictions
+        # so UI can show fracture annotation and heatmap.
+        if is_fractured:
+            try:
+                target_idx = type_indices.get(fracture_type)
+                if target_idx is None:
+                    target_idx = int(np.argmax(type_model.predict(img_array, verbose=0)[0]))
+
+                heatmap = _make_gradcam_heatmap(img_array, type_model, target_class_idx=int(target_idx))
+                _, bbox_norm, loc_quality = _save_gradcam_overlay(
+                    img_path, heatmap, DEFAULT_HEATMAP_PATH, meta=preprocess_meta
+                )
+                heatmap_generated = os.path.exists(DEFAULT_HEATMAP_PATH)
+
+                # Slightly looser confidence gate for type-only mode to avoid blank visualization.
+                type_only_conf_gate = max(0.15, MIN_HEATMAP_CONF - 0.05)
+                type_only_margin_gate = max(0.02, MIN_HEATMAP_MARGIN - 0.01)
+                type_only_quality_gate = max(0.10, MIN_LOCALIZATION_QUALITY - 0.05)
+
+                if (
+                    float(fracture_type_confidence) < type_only_conf_gate
+                    or float(top2_margin) < type_only_margin_gate
+                    or float(loc_quality) < type_only_quality_gate
+                ):
+                    bbox_norm = None
+                    heatmap_generated = False
+                    localization_hidden_reason = "Localization confidence is low for this image"
+                else:
+                    localization_hidden_reason = None
+            except Exception as e:
+                print(f"[PREDICT] Type-only Grad-CAM step failed: {e}")
+                bbox_norm = None
+                heatmap_generated = False
+                localization_hidden_reason = "Heatmap generation failed"
+
         return {
             "is_fractured": bool(is_fractured),
             "confidence": float(confidence),
@@ -662,10 +714,10 @@ def predict_fracture(model: tf.keras.Model, img_path: str):
             "bone_part": fracture_type if is_fractured else "normal",
             "fracture_type": fracture_type if is_fractured else None,
             "fracture_type_confidence": float(fracture_type_confidence) if is_fractured else None,
-            "bbox": None,
-            "heatmap_generated": False,
-            "heatmap_url": None,
-            "localization_hidden_reason": "Type-only model mode",
+            "bbox": bbox_norm if is_fractured else None,
+            "heatmap_generated": bool(heatmap_generated) if is_fractured else False,
+            "heatmap_url": "/get_heatmap" if (is_fractured and heatmap_generated) else None,
+            "localization_hidden_reason": localization_hidden_reason if is_fractured else "Type-only model mode",
             "warning": "Type-only model mode: conservative gating enabled for non-fracture safety",
             "all_probabilities": {},
             "type_probabilities": type_all_probabilities if is_fractured else {},

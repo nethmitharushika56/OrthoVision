@@ -242,6 +242,7 @@ function Dashboard({ user, onLogout }) {
       
       const data = await response.json();
       console.log('Analysis result:', data);
+      console.log('[Dashboard] Analysis response - is_fractured:', data.is_fractured, 'heatmap_url:', data.heatmap_url, 'image_url:', data.image_url);
       
       const transformedResult = {
         prediction: data.predicted_class || (data.is_fractured ? 'Fracture' : 'Normal'),
@@ -257,8 +258,9 @@ function Dashboard({ user, onLogout }) {
         type_probabilities: data.is_fractured ? (data.type_probabilities || {}) : {},
         localization_hidden_reason: data.localization_hidden_reason || '',
         warning: data.warning || '',
-        image_url: URL.createObjectURL(uploadedFile),
+        image_url: data.image_url ? apiUrl(data.image_url) : URL.createObjectURL(uploadedFile),
         heatmap_url: data.heatmap_url ? withTimestamp(apiUrl(data.heatmap_url)) : '',
+        heatmap_generated: data.heatmap_generated || false,
       };
       
       setResult(transformedResult);

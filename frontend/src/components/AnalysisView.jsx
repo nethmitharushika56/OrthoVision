@@ -110,6 +110,18 @@ const AnalysisView = ({ result }) => {
   const type_probabilities = result.type_probabilities || {};
   const localization_hidden_reason = result.localization_hidden_reason || '';
 
+  // Debug logging
+  React.useEffect(() => {
+    console.log('[AnalysisView] Result data:', {
+      is_fractured: result.is_fractured,
+      heatmap_url: heatmap_url,
+      heatmap_generated: result.heatmap_generated,
+      localization_hidden_reason: localization_hidden_reason,
+      bbox: bbox,
+      image_url: image_url ? '(present)' : '(missing)'
+    });
+  }, [result]);
+
   const handleDownloadReport = async () => {
     try {
       console.log('Starting PDF download...');
@@ -179,17 +191,43 @@ const AnalysisView = ({ result }) => {
       if (image_url) {
         try {
           const annotatedImage = await buildAnnotatedImageDataUrl(image_url, result.is_fractured ? bbox : null);
-          yPosition = addPdfImageBlock(pdf, 'ANNOTATED 2D X-RAY', annotatedImage, yPosition, pageWidth, pageHeight);
+          yPosition = addPdfImageBlock(pdf, 'ANNOTATED 2D X-RAY WITH FRACTURE ANNOTATION', annotatedImage, yPosition, pageWidth, pageHeight);
         } catch (imgErr) {
           console.warn('Could not embed annotated X-ray image in PDF:', imgErr);
         }
+      }
+
+      // Include fracture location details if bbox available
+      if (bbox && result.is_fractured) {
+        pdf.setFontSize(10);
+        pdf.setFont('helvetica', 'normal');
+        if (yPosition > pageHeight - 40) {
+          pdf.addPage();
+          yPosition = 15;
+        }
+        pdf.text(`Fracture Location (coordinates from red box):`, 15, yPosition);
+        yPosition += 6;
+        pdf.setFontSize(9);
+        pdf.text(`Position: ${(bbox.x * 100).toFixed(1)}% left, ${(bbox.y * 100).toFixed(1)}% top`, 20, yPosition);
+        yPosition += 5;
+        pdf.text(`Size: ${(bbox.w * 100).toFixed(1)}% width, ${(bbox.h * 100).toFixed(1)}% height`, 20, yPosition);
+        yPosition += 10;
       }
 
       // Include heatmap image when available for fractured cases.
       if (result.is_fractured && heatmap_url) {
         try {
           const heatmapImage = await buildImageDataUrl(heatmap_url);
-          yPosition = addPdfImageBlock(pdf, 'ATTENTION HEATMAP', heatmapImage, yPosition, pageWidth, pageHeight);
+          yPosition = addPdfImageBlock(pdf, 'ATTENTION HEATMAP (AI FOCUS AREAS)', heatmapImage, yPosition, pageWidth, pageHeight);
+          
+          // Add heatmap explanation
+          if (yPosition < pageHeight - 30) {
+            pdf.setFontSize(9);
+            pdf.setFont('helvetica', 'normal');
+            pdf.setTextColor(100, 100, 100);
+            pdf.text('Red areas indicate regions the AI model focused on when detecting the fracture.', 15, yPosition + 2);
+            yPosition += 8;
+          }
         } catch (hmErr) {
           console.warn('Could not embed heatmap image in PDF:', hmErr);
         }
@@ -316,10 +354,54 @@ For clinical confirmation, always consult appropriate medical professionals.`;
       </div>
 
       <div className="analysis__content">
-        {/* Image with Heatmap Overlay */}
-        {image_url && (
+        {/* Side-by-side Image and Heatmap Comparison */}
+        {image_url && result.is_fractured && heatmap_url && (
+          <div className="image-heatmap-comparison">
+            <div className="comparison-column">
+              <h3 className="section-label">Original X-Ray with Fracture Annotation</h3>
+              <p className="annotation-note">Red box shows detected fracture location</p>
+              <div className="image-container-with-bbox">
+                <div className="image-bbox-frame">
+                  <img src={image_url} alt="X-Ray" className="result-image" />
+                  {bbox && (
+                    <div 
+                      className="bbox-overlay"
+                      style={{
+                        left: `${bbox.x * 100}%`,
+                        top: `${bbox.y * 100}%`,
+                        width: `${bbox.w * 100}%`,
+                        height: `${bbox.h * 100}%`
+                      }}
+                    >
+                      <span className="bbox-label">Fracture</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="comparison-column">
+              <h3 className="section-label">Attention Heatmap (AI Focus Areas)</h3>
+              <p className="annotation-note">Red shows areas the AI focused on to detect the fracture</p>
+              <div className="heatmap-frame">
+                <img 
+                  src={heatmap_url} 
+                  alt="Attention Heatmap" 
+                  className="heatmap-image"
+                  crossOrigin="anonymous"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Original Image Only (when no heatmap) */}
+        {image_url && (!result.is_fractured || !heatmap_url) && (
           <div className="image-section">
-            <h3 className="section-label">Original X-Ray</h3>
+            <h3 className="section-label">Original X-Ray {bbox && result.is_fractured ? 'with Fracture Annotation' : ''}</h3>
+            {bbox && result.is_fractured && (
+              <p className="annotation-note">Red box shows detected fracture location</p>
+            )}
             <div className="image-container-with-bbox">
               <div className="image-bbox-frame">
                 <img src={image_url} alt="X-Ray" className="result-image" />
@@ -378,37 +460,34 @@ For clinical confirmation, always consult appropriate medical professionals.`;
           </div>
         )}
 
-        {/* Heatmap */}
-        {result.is_fractured && heatmap_url && (
-          <div className="heatmap-container">
-            <h3 className="section-label">Attention Heatmap</h3>
-            <img 
-              src={heatmap_url} 
-              alt="Attention Heatmap" 
-              className="heatmap-image"
-              crossOrigin="anonymous"
-            />
+        {/* Heatmap Unavailable Notice */}
+        {result.is_fractured && !heatmap_url && (
+          <div className="result-item warning">
+            <span className="result-label">Localization:</span>
+            <span className="result-value">
+              {localization_hidden_reason || 'Heatmap unavailable for this image (confidence too low)'}
+            </span>
           </div>
         )}
 
-        {result.is_fractured && !heatmap_url && !bbox && (
-          <div className="result-item">
-            <span className="result-label">Localization:</span>
-            <span className="result-value">
-              {localization_hidden_reason || 'Heatmap/annotation unavailable for this image confidence level.'}
-            </span>
+        {/* Bounding Box Annotation Status */}
+        {result.is_fractured && bbox && (
+          <div className="bbox-status success">
+            <span className="status-icon">✓</span>
+            <div className="status-text">
+              <strong>Fracture Location Detected</strong>
+              <p>Red box on the X-ray shows the detected fracture area</p>
+            </div>
           </div>
         )}
 
         {/* Bounding Box Info */}
         {bbox && result.is_fractured && (
           <div className="bbox-info">
-            <h3 className="section-label">Fracture Location</h3>
+            <h3 className="section-label">Fracture Location Details</h3>
             <div className="bbox-details">
-              <div>X: {(bbox.x * 100).toFixed(1)}%</div>
-              <div>Y: {(bbox.y * 100).toFixed(1)}%</div>
-              <div>Width: {(bbox.w * 100).toFixed(1)}%</div>
-              <div>Height: {(bbox.h * 100).toFixed(1)}%</div>
+              <div><strong>Position:</strong> {(bbox.x * 100).toFixed(1)}% from left, {(bbox.y * 100).toFixed(1)}% from top</div>
+              <div><strong>Size:</strong> {(bbox.w * 100).toFixed(1)}% width × {(bbox.h * 100).toFixed(1)}% height</div>
             </div>
           </div>
         )}

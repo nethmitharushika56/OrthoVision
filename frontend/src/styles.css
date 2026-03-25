@@ -881,6 +881,73 @@ body[data-theme='light'] .button--secondary {
 	text-align: right;
 }
 
+/* Heatmap and Image Comparison */
+.image-heatmap-comparison {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 20px;
+	padding: 16px;
+	background: rgba(255, 255, 255, 0.02);
+	border-radius: 12px;
+	border: 1px solid rgba(255, 255, 255, 0.08);
+	margin-bottom: 24px;
+}
+
+.comparison-column {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.comparison-column h3 {
+	margin: 0;
+	font-size: 14px;
+	font-weight: 700;
+	color: var(--muted);
+	text-transform: uppercase;
+	letter-spacing: 0.5px;
+}
+
+.annotation-note {
+	margin: 8px 0 12px;
+	font-size: 12px;
+	color: var(--muted);
+	font-style: italic;
+	line-height: 1.4;
+}
+
+.heatmap-frame {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 12px;
+	border: 1px solid rgba(255, 255, 255, 0.10);
+	background: rgba(0, 0, 0, 0.1);
+	overflow: hidden;
+	min-height: 300px;
+}
+
+.heatmap-description {
+	font-size: 12px;
+	color: var(--muted);
+	margin: 0;
+	padding-top: 4px;
+	line-height: 1.4;
+	font-style: italic;
+}
+
+@media (max-width: 768px) {
+	.image-heatmap-comparison {
+		grid-template-columns: 1fr;
+		gap: 16px;
+		padding: 12px;
+	}
+
+	.compare-column {
+		width: 100%;
+	}
+}
+
 /* Heatmap */
 .heatmap-container {
 	display: flex;
@@ -992,6 +1059,47 @@ body[data-theme='light'] .button--secondary {
 }
 
 /* Bounding Box Styles */
+.bbox-status {
+	display: flex;
+	align-items: flex-start;
+	gap: 12px;
+	padding: 12px 16px;
+	border-radius: 8px;
+	margin: 12px 0;
+	border-left: 4px solid;
+}
+
+.bbox-status.success {
+	background: rgba(52, 199, 89, 0.1);
+	border-left-color: rgba(52, 199, 89, 0.8);
+}
+
+.bbox-status .status-icon {
+	font-size: 18px;
+	font-weight: 700;
+	color: rgb(52, 199, 89);
+	flex-shrink: 0;
+	margin-top: 2px;
+}
+
+.bbox-status .status-text {
+	flex: 1;
+}
+
+.bbox-status .status-text strong {
+	display: block;
+	font-weight: 700;
+	color: var(--text);
+	margin-bottom: 4px;
+}
+
+.bbox-status .status-text p {
+	margin: 0;
+	font-size: 13px;
+	color: var(--muted);
+	line-height: 1.4;
+}
+
 .bbox-info {
 	display: flex;
 	flex-direction: column;

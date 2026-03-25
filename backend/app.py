@@ -125,6 +125,15 @@ def create_app():
 
         result = predict_fracture(model=model, img_path=img_path)
 
+        # Add image URL to the result so frontend can display it
+        result["image_url"] = f"/image/{uploaded.filename}"
+        
+        print(f"[ANALYZE] Result keys: {list(result.keys())}")
+        print(f"[ANALYZE] is_fractured: {result.get('is_fractured')}")
+        print(f"[ANALYZE] heatmap_url: {result.get('heatmap_url')}")
+        print(f"[ANALYZE] heatmap_generated: {result.get('heatmap_generated')}")
+        print(f"[ANALYZE] image_url: {result.get('image_url')}")
+
         # Best-effort persistence when caller passes user email in form data.
         user_email = (request.form.get("userEmail") or "").strip().lower()
         try:
@@ -149,6 +158,23 @@ def create_app():
         if not os.path.exists(DEFAULT_HEATMAP_PATH):
             return jsonify({"error": "No heatmap available yet. POST /analyze first."}), 404
         resp = send_file(DEFAULT_HEATMAP_PATH, mimetype="image/jpeg")
+        resp.headers["Cache-Control"] = "no-store, max-age=0"
+        return resp
+
+    @app.get("/image/<filename>")
+    def get_image(filename):
+        """Serve uploaded images to the frontend"""
+        uploads_dir = os.path.join(os.path.dirname(__file__), "uploads")
+        img_path = os.path.join(uploads_dir, filename)
+        
+        # Security: Only serve files from uploads directory
+        if not os.path.abspath(img_path).startswith(os.path.abspath(uploads_dir)):
+            return jsonify({"error": "Invalid file path"}), 403
+        
+        if not os.path.exists(img_path):
+            return jsonify({"error": "Image not found"}), 404
+        
+        resp = send_file(img_path, mimetype="image/jpeg")
         resp.headers["Cache-Control"] = "no-store, max-age=0"
         return resp
 

@@ -10,6 +10,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/analyze': 'http://localhost:5000',
+      '/image': 'http://localhost:5000',
       '/get_heatmap': 'http://localhost:5000',
       '/health': 'http://localhost:5000',
       '/db': 'http://localhost:5000',
