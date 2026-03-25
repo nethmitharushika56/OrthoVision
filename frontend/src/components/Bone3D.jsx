@@ -1,32 +1,13 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 
 const DEFAULT_MODEL = '/models/handbone.glb';
 
-const formatBbox = (bbox) => {
-  if (!bbox) {
-    return 'N/A';
-  }
-  if (Array.isArray(bbox) && bbox.length >= 4) {
-    return `[${bbox.slice(0, 4).join(', ')}]`;
-  }
-  if (typeof bbox === 'object') {
-    try {
-      return JSON.stringify(bbox);
-    } catch (e) {
-      return 'N/A';
-    }
-  }
-  return String(bbox);
-};
-
-const Bone3D = ({ modelUrl, isFractured = false, bbox = null }) => {
+const Bone3D = ({ modelUrl }) => {
   const activeModel = modelUrl || DEFAULT_MODEL;
   const [failed, setFailed] = useState(false);
 
-  const bboxLabel = useMemo(() => formatBbox(bbox), [bbox]);
-
   return (
-    <div className={`viewer ${isFractured ? 'viewer--fractured' : ''}`}>
+    <div className="viewer">
       {!failed ? (
         <model-viewer
           src={activeModel}
@@ -42,13 +23,6 @@ const Bone3D = ({ modelUrl, isFractured = false, bbox = null }) => {
         ></model-viewer>
       ) : (
         <div className="viewer__empty">Failed to load 3D model.</div>
-      )}
-
-      {isFractured && (
-        <>
-          <div className="viewer__fracture-box" aria-hidden="true"></div>
-          <div className="viewer__fracture-info">Fracture Focus Box: {bboxLabel}</div>
-        </>
       )}
 
       <div className="viewer__controls-hint">Drag to rotate • Scroll to zoom</div>

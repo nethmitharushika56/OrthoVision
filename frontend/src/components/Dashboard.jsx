@@ -49,6 +49,39 @@ const toModelLabel = (modelUrl) => {
   return fileName.replace(/\.glb$/i, '');
 };
 
+const getFinalFractureType = (analysisResult) => {
+  if (!analysisResult) {
+    return '';
+  }
+  return String(analysisResult.fracture_type || '').trim();
+};
+
+const resolveAutoModelUrl = (analysisResult, models) => {
+  if (!analysisResult?.is_fractured) {
+    return DEFAULT_MODEL_URL;
+  }
+
+  const rawFracture = getFinalFractureType(analysisResult);
+  if (!rawFracture) {
+    return DEFAULT_MODEL_URL;
+  }
+
+  const fractureKey = rawFracture.toString().trim().toLowerCase();
+  const normalizedFracture = normalizeKey(rawFracture);
+
+  const mapped = FRACTURE_MODEL_MAP[fractureKey] || FRACTURE_MODEL_MAP[normalizedFracture];
+  if (mapped) {
+    return mapped;
+  }
+
+  const fuzzyMatched = (models || []).find((modelUrl) => {
+    const modelNameNormalized = normalizeKey(toModelLabel(modelUrl));
+    return modelNameNormalized.includes(normalizedFracture) || normalizedFracture.includes(modelNameNormalized);
+  });
+
+  return fuzzyMatched || DEFAULT_MODEL_URL;
+};
+
 function Dashboard({ user, onLogout }) {
   const [file, setFile] = useState(null);
   const [result, setResult] = useState(null);
@@ -134,6 +167,8 @@ function Dashboard({ user, onLogout }) {
       };
       
       setResult(transformedResult);
+      // Keep auto mode synced to the latest analysis fracture type.
+      setSelectedModelUrl('auto');
     } catch (error) {
       console.error('Error analyzing image:', error);
       alert('Failed to analyze image. Make sure the backend server is running.');
@@ -174,31 +209,11 @@ function Dashboard({ user, onLogout }) {
     if (selectedModelUrl !== 'auto') {
       return selectedModelUrl;
     }
-
-    if (!analysisResult?.is_fractured) {
-      return DEFAULT_MODEL_URL;
-    }
-
-    const rawFracture = analysisResult.fracture_type || analysisResult.predicted_class || '';
-    const fractureKey = rawFracture.toString().trim().toLowerCase();
-    const normalizedFracture = normalizeKey(rawFracture);
-
-    const mapped = FRACTURE_MODEL_MAP[fractureKey] || FRACTURE_MODEL_MAP[normalizedFracture];
-    if (mapped) {
-      return mapped;
-    }
-
-    const fuzzyMatched = availableModels.find((modelUrl) => {
-      const modelNameNormalized = normalizeKey(toModelLabel(modelUrl));
-      return modelNameNormalized.includes(normalizedFracture) || normalizedFracture.includes(modelNameNormalized);
-    });
-
-    if (fuzzyMatched) {
-      return fuzzyMatched;
-    }
-
-    return DEFAULT_MODEL_URL;
+    return resolveAutoModelUrl(analysisResult, availableModels);
   };
+
+  const autoMatchedModelUrl = resolveAutoModelUrl(result, availableModels);
+  const autoSourceFractureType = getFinalFractureType(result) || 'N/A';
 
   return (
     <div className="app">
@@ -294,7 +309,9 @@ function Dashboard({ user, onLogout }) {
                       value={selectedModelUrl}
                       onChange={(e) => setSelectedModelUrl(e.target.value)}
                     >
-                      <option value="auto">Auto (match detected fracture)</option>
+                      <option value="auto">
+                        Auto (from output type: {autoSourceFractureType}) to {toModelLabel(autoMatchedModelUrl)}
+                      </option>
                       {availableModels.map((modelUrl) => (
                         <option key={modelUrl} value={modelUrl}>
                           {toModelLabel(modelUrl)}
