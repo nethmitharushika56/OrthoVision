@@ -5,6 +5,17 @@ import AnalysisView from './AnalysisView.jsx';
 import Bone3D from './Bone3D.jsx';
 
 const DEFAULT_MODEL_URL = '/models/handbone.glb';
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
+
+const apiUrl = (path = '') => {
+  if (/^https?:\/\//i.test(path)) {
+    return path;
+  }
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return API_BASE ? `${API_BASE}${normalizedPath}` : normalizedPath;
+};
+
+const withTimestamp = (url) => `${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}`;
 
 // Add additional mappings here as you add new model files under /public/models.
 const FRACTURE_MODEL_MAP = {
@@ -94,7 +105,7 @@ function Dashboard({ user, onLogout }) {
       const formData = new FormData();
       formData.append('image', uploadedFile);
       
-      const response = await fetch('http://127.0.0.1:5000/analyze', {
+      const response = await fetch(apiUrl('/analyze'), {
         method: 'POST',
         body: formData,
       });
@@ -119,15 +130,13 @@ function Dashboard({ user, onLogout }) {
         all_probabilities: data.all_probabilities || {},
         type_probabilities: data.type_probabilities || {},
         image_url: URL.createObjectURL(uploadedFile),
-        heatmap_url: (data.heatmap_url
-          ? `http://127.0.0.1:5000${data.heatmap_url}?t=${Date.now()}`
-          : `http://127.0.0.1:5000/get_heatmap?t=${Date.now()}`)
+        heatmap_url: withTimestamp(apiUrl(data.heatmap_url || '/get_heatmap')),
       };
       
       setResult(transformedResult);
     } catch (error) {
       console.error('Error analyzing image:', error);
-      alert('Failed to analyze image. Make sure the backend server is running on http://127.0.0.1:5000');
+      alert('Failed to analyze image. Make sure the backend server is running.');
     } finally {
       setLoading(false);
     }

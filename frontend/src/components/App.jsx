@@ -49,37 +49,37 @@ function App() {
   return (
     <Router>
       <Routes>
-        <Route 
-          path="/" 
-          element={<LandingPage />} 
+        <Route
+          path="/"
+          element={<LandingPage />}
         />
-        <Route 
-          path="/login" 
-          element={user ? <Navigate to="/dashboard" /> : <Login onLogin={handleLogin} />} 
+        <Route
+          path="/login"
+          element={user ? <Navigate to="/dashboard" /> : <Login onLogin={handleLogin} />}
         />
-        <Route 
-          path="/signup" 
-          element={user ? <Navigate to="/dashboard" /> : <SignUp onLogin={handleLogin} />} 
+        <Route
+          path="/signup"
+          element={user ? <Navigate to="/dashboard" /> : <SignUp onLogin={handleLogin} />}
         />
-        <Route 
-          path="/dashboard" 
-          element={user ? <Dashboard user={user} onLogout={handleLogout} /> : <Navigate to="/login" />} 
+        <Route
+          path="/dashboard"
+          element={user ? <Dashboard user={user} onLogout={handleLogout} /> : <Navigate to="/login" />}
         />
-        <Route 
-          path="/settings" 
-          element={user ? <Settings user={user} onLogout={handleLogout} onUpdateUser={handleUpdateUser} /> : <Navigate to="/login" />} 
+        <Route
+          path="/settings"
+          element={user ? <Settings user={user} onLogout={handleLogout} onUpdateUser={handleUpdateUser} /> : <Navigate to="/login" />}
         />
-        <Route 
-          path="/history" 
-          element={user ? <History user={user} /> : <Navigate to="/login" />} 
+        <Route
+          path="/history"
+          element={user ? <History user={user} /> : <Navigate to="/login" />}
         />
-        <Route 
-          path="/terms" 
-          element={<TermsAndConditions />} 
+        <Route
+          path="/terms"
+          element={<TermsAndConditions />}
         />
-        <Route 
-          path="/privacy" 
-          element={<TermsAndConditions />} 
+        <Route
+          path="/privacy"
+          element={<TermsAndConditions />}
         />
       </Routes>
     </Router>
