@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-const DEFAULT_MODEL = '/models/handbone.glb';
+const DEFAULT_MODEL = '/models/Comminuted_fracture_shaded.glb';
 
 const Bone3D = ({ modelUrl }) => {
   const activeModel = modelUrl || DEFAULT_MODEL;

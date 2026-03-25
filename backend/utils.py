@@ -18,6 +18,14 @@ DEFAULT_TYPE_CLASS_INDICES_PATH = os.path.join(
     BACKEND_DIR, "models", "orthovision_type_model.class_indices.json"
 )
 DEFAULT_HEATMAP_PATH = os.path.join(BACKEND_DIR, "uploads", "latest_heatmap.jpg")
+MODEL_INPUT_SIZE = 384
+MIN_LOCALIZATION_CONF = float(os.environ.get("MIN_LOCALIZATION_CONF", "0.25"))
+# Type-only model (no explicit normal class) needs strict gating to avoid false positives.
+TYPE_MIN_CONF = float(os.environ.get("TYPE_MIN_CONF", "0.30"))
+TYPE_MIN_MARGIN = float(os.environ.get("TYPE_MIN_MARGIN", "0.01"))
+MIN_LOCALIZATION_QUALITY = float(os.environ.get("MIN_LOCALIZATION_QUALITY", "0.30"))
+MIN_HEATMAP_CONF = float(os.environ.get("MIN_HEATMAP_CONF", "0.30"))
+MIN_HEATMAP_MARGIN = float(os.environ.get("MIN_HEATMAP_MARGIN", "0.05"))
 
 
 def _fracture_threshold() -> float:
@@ -123,7 +131,17 @@ def get_type_model(model_path: str = DEFAULT_TYPE_MODEL_PATH):
 
 
 def _predict_top1(model: tf.keras.Model, img_array: np.ndarray, class_indices: dict) -> tuple[str, float, dict]:
-    probs = model.predict(img_array, verbose=0)[0]
+    arr = np.asarray(img_array, dtype=np.float32)
+    pred_list = [model.predict(arr, verbose=0)[0]]
+
+    # Lightweight test-time augmentation: horizontal flip average.
+    try:
+        flipped = arr[:, :, ::-1, :]
+        pred_list.append(model.predict(flipped, verbose=0)[0])
+    except Exception:
+        pass
+
+    probs = np.mean(np.stack(pred_list, axis=0), axis=0)
     idx = int(np.argmax(probs))
     conf = float(probs[idx])
     idx_to_class = {v: k for k, v in class_indices.items()}
@@ -132,14 +150,79 @@ def _predict_top1(model: tf.keras.Model, img_array: np.ndarray, class_indices: d
     return name, conf, all_probs
 
 
-def _preprocess_image(img_path: str) -> np.ndarray:
-    # Using 384x384 for EfficientNetB3 model
-    img = image.load_img(img_path, target_size=(384, 384))
-    arr = image.img_to_array(img)
+def _top2_margin(prob_map: dict) -> float:
+    vals = sorted([float(v) for v in (prob_map or {}).values()], reverse=True)
+    if len(vals) < 2:
+        return vals[0] if vals else 0.0
+    return max(0.0, vals[0] - vals[1])
+
+
+def _preprocess_image(img_path: str) -> tuple[np.ndarray, dict]:
+    """Preprocess while preserving aspect ratio via letterboxing.
+
+    Returns (model_input_batch, meta) where meta is used to project Grad-CAM
+    back to original image coordinates accurately.
+    """
+    bgr = cv2.imread(img_path)
+    if bgr is None:
+        raise ValueError(f"Failed to read image: {img_path}")
+
+    rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+    orig_h, orig_w = int(rgb.shape[0]), int(rgb.shape[1])
+
+    scale = min(float(MODEL_INPUT_SIZE) / float(orig_w), float(MODEL_INPUT_SIZE) / float(orig_h))
+    new_w = max(1, int(round(orig_w * scale)))
+    new_h = max(1, int(round(orig_h * scale)))
+
+    resized = cv2.resize(rgb, (new_w, new_h), interpolation=cv2.INTER_AREA)
+    canvas = np.zeros((MODEL_INPUT_SIZE, MODEL_INPUT_SIZE, 3), dtype=np.uint8)
+
+    pad_x = (MODEL_INPUT_SIZE - new_w) // 2
+    pad_y = (MODEL_INPUT_SIZE - new_h) // 2
+    canvas[pad_y:pad_y + new_h, pad_x:pad_x + new_w] = resized
+
+    arr = canvas.astype(np.float32)
     arr = np.expand_dims(arr, axis=0)
-    # Use EfficientNet preprocessing instead of MobileNetV2
     arr = tf.keras.applications.efficientnet.preprocess_input(arr)
-    return arr
+
+    meta = {
+        "orig_w": orig_w,
+        "orig_h": orig_h,
+        "new_w": new_w,
+        "new_h": new_h,
+        "pad_x": pad_x,
+        "pad_y": pad_y,
+    }
+    return arr, meta
+
+
+def _project_heatmap_to_original(heatmap_01: np.ndarray, meta: dict) -> np.ndarray:
+    """Map a model-space heatmap to original image coordinates."""
+    hm = np.asarray(heatmap_01, dtype=np.float32)
+    hm = np.nan_to_num(hm, nan=0.0, posinf=0.0, neginf=0.0)
+
+    # Bring low-res CAM map to input canvas size.
+    hm_input = cv2.resize(hm, (MODEL_INPUT_SIZE, MODEL_INPUT_SIZE), interpolation=cv2.INTER_LINEAR)
+
+    pad_x = int(meta.get("pad_x", 0))
+    pad_y = int(meta.get("pad_y", 0))
+    new_w = int(meta.get("new_w", MODEL_INPUT_SIZE))
+    new_h = int(meta.get("new_h", MODEL_INPUT_SIZE))
+    orig_w = int(meta.get("orig_w", MODEL_INPUT_SIZE))
+    orig_h = int(meta.get("orig_h", MODEL_INPUT_SIZE))
+
+    y0 = max(0, pad_y)
+    y1 = min(MODEL_INPUT_SIZE, pad_y + new_h)
+    x0 = max(0, pad_x)
+    x1 = min(MODEL_INPUT_SIZE, pad_x + new_w)
+
+    crop = hm_input[y0:y1, x0:x1]
+    if crop.size == 0:
+        crop = hm_input
+
+    hm_orig = cv2.resize(crop, (orig_w, orig_h), interpolation=cv2.INTER_LINEAR)
+    hm_orig = np.clip(hm_orig, 0.0, 1.0)
+    return hm_orig
 
 
 def _find_last_conv_layer_name(model: tf.keras.Model) -> str:
@@ -223,7 +306,31 @@ def _make_gradcam_heatmap(img_array: np.ndarray, model: tf.keras.Model, target_c
     if denom == 0:
         return np.zeros((heatmap.shape[0], heatmap.shape[1]), dtype=np.float32)
     heatmap = tf.maximum(heatmap, 0) / denom
-    return heatmap.numpy()
+    hm = heatmap.numpy().astype(np.float32)
+    hm = np.nan_to_num(hm, nan=0.0, posinf=0.0, neginf=0.0)
+    return hm
+
+
+def _enhance_heatmap(heatmap_01: np.ndarray) -> np.ndarray:
+    """Denoise and sharpen activation map before bbox/overlay generation."""
+    hm = np.asarray(heatmap_01, dtype=np.float32)
+    if hm.size == 0:
+        return hm
+
+    hm = np.nan_to_num(hm, nan=0.0, posinf=0.0, neginf=0.0)
+    hm = np.clip(hm, 0.0, 1.0)
+
+    # Smooth isolated noisy activations.
+    hm = cv2.GaussianBlur(hm, (0, 0), sigmaX=2.0, sigmaY=2.0)
+
+    max_v = float(np.max(hm))
+    if max_v > 0.0:
+        hm = hm / max_v
+
+    # Sharpen high-confidence regions while suppressing weak background.
+    hm = np.power(hm, 1.45)
+    hm = np.clip(hm, 0.0, 1.0)
+    return hm
 
 
 def _bbox_from_heatmap(heatmap_01: np.ndarray, *, threshold: float) -> tuple[int, int, int, int] | None:
@@ -238,48 +345,116 @@ def _bbox_from_heatmap(heatmap_01: np.ndarray, *, threshold: float) -> tuple[int
     return x0, y0, x1, y1
 
 def _bbox_from_peak_component(heatmap_01: np.ndarray) -> tuple[int, int, int, int] | None:
-    """Return bbox of the connected component that contains the hottest pixel."""
+    """Return bbox of the most reliable connected component in activation map."""
     if heatmap_01 is None or heatmap_01.size == 0:
         return None
 
-    hm = np.asarray(heatmap_01, dtype=np.float32)
+    hm = _enhance_heatmap(heatmap_01)
     hm_max = float(np.max(hm))
     if hm_max <= 0.0:
         return None
 
-    # Dynamic threshold based on distribution.
-    # Use a high percentile so the region tracks the hottest area.
-    try:
-        p90 = float(np.percentile(hm, 90))
-    except Exception:
-        p90 = hm_max * 0.70
-    thresh = max(0.15, min(hm_max * 0.70, p90))
+    h, w = hm.shape
+    area = float(h * w)
+    best_score = -1.0
+    best_bbox = None
 
-    mask = (hm >= thresh).astype(np.uint8)
-    if int(mask.max()) == 0:
-        return None
+    # Sweep strict-to-loose thresholds and select the strongest stable component.
+    for pct in (99.2, 98.5, 97.5, 96.0, 94.0, 92.0):
+        thr = float(np.percentile(hm, pct))
+        if thr <= 0.0:
+            continue
 
-    # Connected components on the thresholded mask.
-    num, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
-    if num <= 1:
-        return None
+        mask = (hm >= thr).astype(np.uint8)
+        if int(mask.max()) == 0:
+            continue
 
+        kernel = np.ones((5, 5), dtype=np.uint8)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+
+        num, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+        if num <= 1:
+            continue
+
+        for comp_idx in range(1, num):
+            x, y, bw, bh, comp_area = stats[comp_idx]
+            area_ratio = float(comp_area) / area
+
+            # Reject tiny noise and huge full-image regions.
+            if area_ratio < 0.0015 or area_ratio > 0.55:
+                continue
+
+            comp_mask = labels == comp_idx
+            if not np.any(comp_mask):
+                continue
+
+            comp_vals = hm[comp_mask]
+            act_sum = float(np.sum(comp_vals))
+            act_mean = float(np.mean(comp_vals))
+            act_max = float(np.max(comp_vals))
+
+            # Prefer regions with high integrated activation and good compactness.
+            compactness = float(min(bw, bh)) / float(max(bw, bh) + 1e-6)
+            score = act_sum * (0.60 + 0.40 * act_mean) * (0.70 + 0.30 * compactness) * (0.70 + 0.30 * act_max)
+
+            if score > best_score:
+                best_score = score
+                best_bbox = (int(x), int(y), int(x + bw - 1), int(y + bh - 1))
+
+    if best_bbox is not None:
+        return best_bbox
+
+    # Fallback: local box around weighted centroid of top activations.
     y_peak, x_peak = np.unravel_index(int(np.argmax(hm)), hm.shape)
-    peak_label = int(labels[y_peak, x_peak])
-    if peak_label == 0:
-        # Peak might fall just outside threshold; fall back to a small peak box.
-        h, w = hm.shape
-        half = int(min(w, h) * 0.12)
+    q = float(np.percentile(hm, 99.0))
+    strong = hm >= q
+    ys, xs = np.where(strong)
+    if len(xs) == 0:
+        half = int(min(w, h) * 0.10)
         x0 = max(0, int(x_peak) - half)
         x1 = min(w - 1, int(x_peak) + half)
         y0 = max(0, int(y_peak) - half)
         y1 = min(h - 1, int(y_peak) + half)
         return x0, y0, x1, y1
 
-    x, y, w, h, _area = stats[peak_label]
-    x0, y0 = int(x), int(y)
-    x1, y1 = int(x + w - 1), int(y + h - 1)
+    wx = np.average(xs, weights=hm[ys, xs])
+    wy = np.average(ys, weights=hm[ys, xs])
+    half = int(min(w, h) * 0.12)
+    x0 = max(0, int(wx) - half)
+    x1 = min(w - 1, int(wx) + half)
+    y0 = max(0, int(wy) - half)
+    y1 = min(h - 1, int(wy) + half)
     return x0, y0, x1, y1
+
+
+def _localization_quality(heatmap_01: np.ndarray, bbox_xyxy: tuple[int, int, int, int] | None) -> float:
+    if bbox_xyxy is None:
+        return 0.0
+
+    hm = np.asarray(heatmap_01, dtype=np.float32)
+    hm = np.nan_to_num(hm, nan=0.0, posinf=0.0, neginf=0.0)
+    hm = np.clip(hm, 0.0, 1.0)
+    total = float(np.sum(hm))
+    if total <= 1e-8:
+        return 0.0
+
+    h, w = hm.shape
+    x0, y0, x1, y1 = bbox_xyxy
+    x0 = max(0, min(int(x0), w - 1))
+    x1 = max(0, min(int(x1), w - 1))
+    y0 = max(0, min(int(y0), h - 1))
+    y1 = max(0, min(int(y1), h - 1))
+
+    region = hm[y0:y1 + 1, x0:x1 + 1]
+    in_mass = float(np.sum(region))
+    mass_ratio = in_mass / total
+
+    area_ratio = float((x1 - x0 + 1) * (y1 - y0 + 1)) / float(h * w)
+    # Prefer moderate compact regions, penalize very large boxes.
+    size_score = float(np.clip(1.0 - (area_ratio / 0.35), 0.0, 1.0))
+
+    return float(0.75 * mass_ratio + 0.25 * size_score)
 
 
 def _normalize_bbox(bbox_xyxy: tuple[int, int, int, int], *, width: int, height: int) -> dict:
@@ -289,8 +464,8 @@ def _normalize_bbox(bbox_xyxy: tuple[int, int, int, int], *, width: int, height:
     y0 = max(0, min(y0, height - 1))
     y1 = max(0, min(y1, height - 1))
 
-    w = max(1, x1 - x0)
-    h = max(1, y1 - y0)
+    w = max(1, x1 - x0 + 1)
+    h = max(1, y1 - y0 + 1)
 
     return {
         "x": float(x0) / float(width),
@@ -304,6 +479,7 @@ def _save_gradcam_overlay(
     img_path: str,
     heatmap: np.ndarray,
     out_path: str,
+    meta: dict | None = None,
     alpha: float = 0.4,
 ):
     img = cv2.imread(img_path)
@@ -311,8 +487,11 @@ def _save_gradcam_overlay(
         return out_path, None
 
     h_img, w_img = int(img.shape[0]), int(img.shape[1])
-    heatmap_resized = cv2.resize(heatmap, (w_img, h_img))
-    heatmap_resized = np.clip(heatmap_resized, 0.0, 1.0)
+    if meta is not None:
+        heatmap_resized = _project_heatmap_to_original(heatmap, meta)
+    else:
+        heatmap_resized = cv2.resize(heatmap, (w_img, h_img))
+    heatmap_resized = _enhance_heatmap(heatmap_resized)
 
     # Bounding box from the peak connected component (best-effort)
     hm_max = float(np.max(heatmap_resized)) if heatmap_resized.size else 0.0
@@ -329,70 +508,105 @@ def _save_gradcam_overlay(
         y1 = min(h_img - 1, int(y_peak) + half)
         bbox = (x0, y0, x1, y1)
 
-    # Save overlay image
+    quality = _localization_quality(heatmap_resized, bbox)
+
+    # Save overlay image with confidence-weighted blending to suppress low-importance noise.
     heatmap_uint8 = np.uint8(255 * heatmap_resized)
     heatmap_color = cv2.applyColorMap(heatmap_uint8, cv2.COLORMAP_JET)
-    superimposed = heatmap_color * alpha + img
+    alpha_map = np.clip(np.power(heatmap_resized, 1.6), 0.0, 1.0)
+    alpha_map = np.where(alpha_map >= 0.12, alpha_map, 0.0)
+    alpha_map = (alpha_map * float(alpha))[..., None]
+    superimposed = (img.astype(np.float32) * (1.0 - alpha_map)) + (heatmap_color.astype(np.float32) * alpha_map)
+    superimposed = np.clip(superimposed, 0, 255).astype(np.uint8)
     cv2.imwrite(out_path, superimposed)
 
     bbox_norm = _normalize_bbox(bbox, width=w_img, height=h_img) if bbox else None
-    return out_path, bbox_norm
+    return out_path, bbox_norm, float(quality)
 
 
 def predict_fracture(model: tf.keras.Model, img_path: str):
-    img_array = _preprocess_image(img_path)
+    img_array, preprocess_meta = _preprocess_image(img_path)
     type_model = get_type_model()
     type_indices = _load_type_class_indices() if type_model is not None else {}
     
     print(f"\n[PREDICT] File: {img_path}")
     
-    # Since we only have fracture types in the dataset, use the type model directly
+    # If only a type model is available (no explicit "normal" class),
+    # apply conservative gating to reduce false positives on non-fracture images.
     if type_model is not None and type_indices:
         # Use type model for classification
         fracture_type, fracture_type_confidence, type_all_probabilities = _predict_top1(
             type_model, img_array, type_indices
         )
-        
-        is_fractured = True  # Always fractured since we only classify fracture types
+
+        top2_margin = _top2_margin(type_all_probabilities)
+        is_fractured = bool(
+            float(fracture_type_confidence) >= TYPE_MIN_CONF
+            and float(top2_margin) >= TYPE_MIN_MARGIN
+        )
         confidence = fracture_type_confidence
-        predicted_class = fracture_type
+        predicted_class = fracture_type if is_fractured else "normal"
         
-        print(f"[PREDICT] Type={fracture_type} conf={fracture_type_confidence:.4f}")
+        print(
+            f"[PREDICT] Type={fracture_type} conf={fracture_type_confidence:.4f} "
+            f"margin={top2_margin:.4f} gate_conf={TYPE_MIN_CONF:.2f} gate_margin={TYPE_MIN_MARGIN:.2f} "
+            f"is_fractured={is_fractured}"
+        )
         print(f"[PREDICT] All probabilities: {type_all_probabilities}")
         
         bbox_norm = None
         heatmap_generated = False
+        localization_hidden_reason = None
         
-        try:
-            # Grad-CAM from the type model
-            target_idx = type_indices.get(fracture_type)
-            if target_idx is None:
-                target_idx = int(np.argmax(type_model.predict(img_array, verbose=0)[0]))
-            print(f"[PREDICT] Generating heatmap for {fracture_type} (idx={target_idx})")
-            heatmap = _make_gradcam_heatmap(img_array, type_model, target_class_idx=int(target_idx))
-            _, bbox_norm = _save_gradcam_overlay(img_path, heatmap, DEFAULT_HEATMAP_PATH)
-            heatmap_generated = os.path.exists(DEFAULT_HEATMAP_PATH)
-            print(f"[PREDICT] Heatmap saved successfully at {DEFAULT_HEATMAP_PATH}")
-        except Exception as e:
-            print(f"[PREDICT] Grad-CAM failed: {e}")
-            import traceback
-            traceback.print_exc()
+        if is_fractured:
+            try:
+                # Grad-CAM from the type model
+                target_idx = type_indices.get(fracture_type)
+                if target_idx is None:
+                    target_idx = int(np.argmax(type_model.predict(img_array, verbose=0)[0]))
+                print(f"[PREDICT] Generating heatmap for {fracture_type} (idx={target_idx})")
+                heatmap = _make_gradcam_heatmap(img_array, type_model, target_class_idx=int(target_idx))
+                _, bbox_norm, loc_quality = _save_gradcam_overlay(img_path, heatmap, DEFAULT_HEATMAP_PATH, meta=preprocess_meta)
+                heatmap_generated = os.path.exists(DEFAULT_HEATMAP_PATH)
+                # Suppress localization aggressively unless confidence, margin,
+                # and map quality are all strong.
+                gate_conf_threshold = max(MIN_LOCALIZATION_CONF, MIN_HEATMAP_CONF)
+                if (
+                    float(fracture_type_confidence) < gate_conf_threshold
+                    or float(top2_margin) < MIN_HEATMAP_MARGIN
+                    or float(loc_quality) < MIN_LOCALIZATION_QUALITY
+                ):
+                    bbox_norm = None
+                    heatmap_generated = False
+                    localization_hidden_reason = "Localization confidence is low for this image"
+                print(f"[PREDICT] Heatmap saved successfully at {DEFAULT_HEATMAP_PATH}")
+            except Exception as e:
+                print(f"[PREDICT] Grad-CAM failed: {e}")
+                import traceback
+                traceback.print_exc()
+                bbox_norm = None
+                heatmap_generated = False
+                localization_hidden_reason = "Heatmap generation failed"
+        else:
             bbox_norm = None
             heatmap_generated = False
+            localization_hidden_reason = "Not classified as fractured"
         
         return {
-            "is_fractured": True,
-            "confidence": float(confidence),
-            "fracture_probability": float(confidence),
-            "predicted_class": fracture_type,
-            "bone_part": fracture_type,
-            "fracture_type": fracture_type,
-            "fracture_type_confidence": float(fracture_type_confidence),
+            "is_fractured": bool(is_fractured),
+            "confidence": float(confidence if is_fractured else (1.0 - confidence)),
+            "fracture_probability": float(confidence if is_fractured else 0.0),
+            "predicted_class": predicted_class,
+            "bone_part": fracture_type if is_fractured else "normal",
+            "fracture_type": fracture_type if is_fractured else None,
+            "fracture_type_confidence": float(fracture_type_confidence) if is_fractured else None,
             "bbox": bbox_norm,
             "heatmap_generated": bool(heatmap_generated),
             "heatmap_url": "/get_heatmap" if heatmap_generated else None,
+            "localization_hidden_reason": localization_hidden_reason,
+            "warning": "Type-only model mode: conservative gating enabled for non-fracture safety",
             "all_probabilities": {},
-            "type_probabilities": type_all_probabilities,
+            "type_probabilities": type_all_probabilities if is_fractured else {},
         }
     else:
         # Fallback to binary model if type model not available
@@ -437,6 +651,7 @@ def predict_fracture(model: tf.keras.Model, img_path: str):
             "bbox": None,
             "heatmap_generated": False,
             "heatmap_url": None,
+            "localization_hidden_reason": "Binary model path does not generate localization",
             "all_probabilities": {cls: float(softmax_output[idx]) for cls, idx in class_indices.items()},
             "type_probabilities": {},
         }

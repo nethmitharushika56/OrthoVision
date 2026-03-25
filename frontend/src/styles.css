@@ -490,6 +490,7 @@ body {
 	display: flex;
 	flex-direction: column;
 	gap: 16px;
+	overflow: hidden;
 }
 
 .upload__preview {
@@ -510,6 +511,8 @@ body {
 
 .upload__input-wrapper {
 	position: relative;
+	overflow: hidden;
+	border-radius: 14px;
 }
 
 .upload__label {
@@ -523,6 +526,7 @@ body {
 	cursor: pointer;
 	transition: all 160ms ease;
 	width: 100%;
+	box-sizing: border-box;
 }
 
 .upload__label:hover {
@@ -718,7 +722,6 @@ body {
 }
 
 .image-container-with-bbox {
-	position: relative;
 	border-radius: 12px;
 	overflow: hidden;
 	border: 1px solid rgba(72, 183, 255, 0.25);
@@ -729,12 +732,19 @@ body {
 	justify-content: center;
 }
 
+.image-bbox-frame {
+	position: relative;
+	display: inline-block;
+	line-height: 0;
+	max-width: 100%;
+}
+
 .result-image {
-	width: 100%;
+	width: auto;
 	height: auto;
 	display: block;
+	max-width: 100%;
 	max-height: 300px;
-	object-fit: contain;
 }
 
 .bbox-overlay {

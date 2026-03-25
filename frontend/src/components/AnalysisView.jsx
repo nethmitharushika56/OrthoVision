@@ -1,6 +1,100 @@
 import React from 'react';
 import { jsPDF } from 'jspdf';
 
+const loadImageElement = (src, crossOrigin = 'anonymous') =>
+  new Promise((resolve, reject) => {
+    const img = new Image();
+    if (crossOrigin) {
+      img.crossOrigin = crossOrigin;
+    }
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error(`Failed to load image: ${src}`));
+    img.src = src;
+  });
+
+const buildAnnotatedImageDataUrl = async (src, bbox = null) => {
+  const img = await loadImageElement(src, null);
+  const canvas = document.createElement('canvas');
+  canvas.width = img.naturalWidth || img.width;
+  canvas.height = img.naturalHeight || img.height;
+  const ctx = canvas.getContext('2d');
+
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+  if (bbox && Number.isFinite(bbox.x) && Number.isFinite(bbox.y) && Number.isFinite(bbox.w) && Number.isFinite(bbox.h)) {
+    const x = bbox.x * canvas.width;
+    const y = bbox.y * canvas.height;
+    const w = bbox.w * canvas.width;
+    const h = bbox.h * canvas.height;
+
+    ctx.strokeStyle = 'rgba(255, 59, 48, 0.95)';
+    ctx.lineWidth = Math.max(2, Math.round(canvas.width / 300));
+    ctx.fillStyle = 'rgba(255, 59, 48, 0.12)';
+    ctx.beginPath();
+    ctx.rect(x, y, w, h);
+    ctx.fill();
+    ctx.stroke();
+
+    const label = 'Fracture';
+    ctx.font = `${Math.max(16, Math.round(canvas.width / 30))}px Arial`;
+    const textWidth = ctx.measureText(label).width;
+    const padX = 12;
+    const padY = 8;
+    const labelX = x;
+    const labelY = Math.max(0, y - 32);
+
+    ctx.fillStyle = 'rgba(255, 59, 48, 0.95)';
+    ctx.fillRect(labelX, labelY, textWidth + padX * 2, 30);
+    ctx.fillStyle = 'white';
+    ctx.fillText(label, labelX + padX, labelY + 22);
+  }
+
+  return canvas.toDataURL('image/jpeg', 0.95);
+};
+
+const buildImageDataUrl = async (src) => {
+  const img = await loadImageElement(src, 'anonymous');
+  const canvas = document.createElement('canvas');
+  canvas.width = img.naturalWidth || img.width;
+  canvas.height = img.naturalHeight || img.height;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL('image/jpeg', 0.95);
+};
+
+const addPdfImageBlock = (pdf, title, dataUrl, yPosition, pageWidth, pageHeight) => {
+  const margin = 15;
+  const maxW = pageWidth - margin * 2;
+  const imgProps = pdf.getImageProperties(dataUrl);
+  const ratio = imgProps.height / imgProps.width;
+  let drawW = maxW;
+  let drawH = drawW * ratio;
+
+  const maxBlockHeight = pageHeight - yPosition - 25;
+  if (drawH > maxBlockHeight) {
+    drawH = Math.max(40, maxBlockHeight);
+    drawW = drawH / ratio;
+  }
+
+  pdf.setFontSize(11);
+  pdf.setFont('helvetica', 'bold');
+  pdf.setTextColor(0, 0, 0);
+  pdf.text(title, margin, yPosition);
+  yPosition += 5;
+
+  if (yPosition + drawH > pageHeight - 15) {
+    pdf.addPage();
+    yPosition = 15;
+    pdf.setFontSize(11);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text(title, margin, yPosition);
+    yPosition += 5;
+  }
+
+  pdf.addImage(dataUrl, 'JPEG', margin, yPosition, drawW, drawH, undefined, 'FAST');
+  return yPosition + drawH + 8;
+};
+
 const AnalysisView = ({ result }) => {
   if (!result) return null;
 
@@ -14,8 +108,9 @@ const AnalysisView = ({ result }) => {
   const all_probabilities = result.all_probabilities || {};
   const fracture_type = result.fracture_type || null;
   const type_probabilities = result.type_probabilities || {};
+  const localization_hidden_reason = result.localization_hidden_reason || '';
 
-  const handleDownloadReport = () => {
+  const handleDownloadReport = async () => {
     try {
       console.log('Starting PDF download...');
       const pdf = new jsPDF();
@@ -79,6 +174,26 @@ const AnalysisView = ({ result }) => {
       }
 
       yPosition += 8;
+
+      // Include annotated 2D image in report.
+      if (image_url) {
+        try {
+          const annotatedImage = await buildAnnotatedImageDataUrl(image_url, result.is_fractured ? bbox : null);
+          yPosition = addPdfImageBlock(pdf, 'ANNOTATED 2D X-RAY', annotatedImage, yPosition, pageWidth, pageHeight);
+        } catch (imgErr) {
+          console.warn('Could not embed annotated X-ray image in PDF:', imgErr);
+        }
+      }
+
+      // Include heatmap image when available for fractured cases.
+      if (result.is_fractured && heatmap_url) {
+        try {
+          const heatmapImage = await buildImageDataUrl(heatmap_url);
+          yPosition = addPdfImageBlock(pdf, 'ATTENTION HEATMAP', heatmapImage, yPosition, pageWidth, pageHeight);
+        } catch (hmErr) {
+          console.warn('Could not embed heatmap image in PDF:', hmErr);
+        }
+      }
 
       // All Classification Probabilities
       if (Object.keys(all_probabilities).length > 0) {
@@ -206,20 +321,22 @@ For clinical confirmation, always consult appropriate medical professionals.`;
           <div className="image-section">
             <h3 className="section-label">Original X-Ray</h3>
             <div className="image-container-with-bbox">
-              <img src={image_url} alt="X-Ray" className="result-image" />
-              {bbox && result.is_fractured && (
-                <div 
-                  className="bbox-overlay"
-                  style={{
-                    left: `${bbox.x * 100}%`,
-                    top: `${bbox.y * 100}%`,
-                    width: `${bbox.w * 100}%`,
-                    height: `${bbox.h * 100}%`
-                  }}
-                >
-                  <span className="bbox-label">Fracture</span>
-                </div>
-              )}
+              <div className="image-bbox-frame">
+                <img src={image_url} alt="X-Ray" className="result-image" />
+                {bbox && result.is_fractured && (
+                  <div 
+                    className="bbox-overlay"
+                    style={{
+                      left: `${bbox.x * 100}%`,
+                      top: `${bbox.y * 100}%`,
+                      width: `${bbox.w * 100}%`,
+                      height: `${bbox.h * 100}%`
+                    }}
+                  >
+                    <span className="bbox-label">Fracture</span>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -231,6 +348,7 @@ For clinical confirmation, always consult appropriate medical professionals.`;
             {result.is_fractured ? 'Yes' : 'No'}
           </span>
         </div>
+
 
         {/* Fracture Type (when fractured) */}
         {result.is_fractured && (
@@ -247,19 +365,21 @@ For clinical confirmation, always consult appropriate medical professionals.`;
         </div>
 
         {/* Progress Bar */}
-        <div className="progress-container">
-          <div className="progress-label">Fracture Probability</div>
-          <div className="progress-bar">
-            <div
-              className="progress-fill"
-              style={{ width: `${fracture_probability * 100}%` }}
-            />
+        {result.is_fractured && (
+          <div className="progress-container">
+            <div className="progress-label">Fracture Probability</div>
+            <div className="progress-bar">
+              <div
+                className="progress-fill"
+                style={{ width: `${fracture_probability * 100}%` }}
+              />
+            </div>
+            <div className="progress-value">{(fracture_probability * 100).toFixed(1)}%</div>
           </div>
-          <div className="progress-value">{(fracture_probability * 100).toFixed(1)}%</div>
-        </div>
+        )}
 
         {/* Heatmap */}
-        {heatmap_url && (
+        {result.is_fractured && heatmap_url && (
           <div className="heatmap-container">
             <h3 className="section-label">Attention Heatmap</h3>
             <img 
@@ -268,6 +388,15 @@ For clinical confirmation, always consult appropriate medical professionals.`;
               className="heatmap-image"
               crossOrigin="anonymous"
             />
+          </div>
+        )}
+
+        {result.is_fractured && !heatmap_url && !bbox && (
+          <div className="result-item">
+            <span className="result-label">Localization:</span>
+            <span className="result-value">
+              {localization_hidden_reason || 'Heatmap/annotation unavailable for this image confidence level.'}
+            </span>
           </div>
         )}
 
@@ -308,7 +437,7 @@ For clinical confirmation, always consult appropriate medical professionals.`;
         )}
 
         {/* Fracture Type Probabilities */}
-        {Object.keys(type_probabilities).length > 0 && (
+        {result.is_fractured && Object.keys(type_probabilities).length > 0 && (
           <div className="probabilities-section">
             <h3 className="section-label">Fracture Type Probabilities</h3>
             <div className="probability-list">

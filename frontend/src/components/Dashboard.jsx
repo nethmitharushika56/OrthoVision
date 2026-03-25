@@ -4,7 +4,7 @@ import Uploader from './Uploader.jsx';
 import AnalysisView from './AnalysisView.jsx';
 import Bone3D from './Bone3D.jsx';
 
-const DEFAULT_MODEL_URL = '/models/handbone.glb';
+const DEFAULT_MODEL_URL = '/models/Comminuted_fracture_shaded.glb';
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
 
 const apiUrl = (path = '') => {
@@ -29,13 +29,16 @@ const FRACTURE_MODEL_MAP = {
   comminuted: '/models/Comminuted_fracture_shaded.glb',
   'fracture dislocation': '/models/Fracture_dislocation_shaded.glb',
   'fracturedislocation': '/models/Fracture_dislocation_shaded.glb',
+  'greenstick fracture': '/models/Greenstick_fracture.glb',
+  'greenstickfracture': '/models/Greenstick_fracture.glb',
+  greenstick: '/models/Greenstick_fracture.glb',
 };
 
 const BUILT_IN_MODELS = [
-  '/models/handbone.glb',
   '/models/Avulsion_fracture_shaded.glb',
   '/models/Comminuted_fracture_shaded.glb',
   '/models/Fracture_dislocation_shaded.glb',
+  '/models/Greenstick_fracture.glb',
 ];
 
 const normalizeKey = (value = '') =>
@@ -46,7 +49,49 @@ const normalizeKey = (value = '') =>
 
 const toModelLabel = (modelUrl) => {
   const fileName = modelUrl.split('/').pop() || modelUrl;
-  return fileName.replace(/\.glb$/i, '');
+  const rawName = fileName.replace(/\.(glb|gbl)$/i, '');
+  const baseName = rawName.replace(/_shaded$/i, '');
+  const key = normalizeKey(baseName);
+
+  if (key.includes('avulsion')) {
+    return 'Avulsion fracture';
+  }
+  if (key.includes('comminuted') || key.includes('communited')) {
+    return 'Comminuted fracture';
+  }
+  if (key.includes('fracturedislocation')) {
+    return 'Fracture dislocation';
+  }
+  if (key.includes('greenstick')) {
+    return 'Greenstick fracture';
+  }
+
+  return baseName.replace(/_/g, ' ');
+};
+
+const buildModelOptions = (models = []) => {
+  const labelToUrl = new Map();
+
+  (models || []).forEach((modelUrl) => {
+    const label = toModelLabel(modelUrl);
+    const existing = labelToUrl.get(label);
+
+    if (!existing) {
+      labelToUrl.set(label, modelUrl);
+      return;
+    }
+
+    // Prefer shaded variants when duplicate labels map to multiple files.
+    const existingIsShaded = /_shaded\.(glb|gbl)$/i.test(existing);
+    const currentIsShaded = /_shaded\.(glb|gbl)$/i.test(modelUrl);
+    if (currentIsShaded && !existingIsShaded) {
+      labelToUrl.set(label, modelUrl);
+    }
+  });
+
+  return Array.from(labelToUrl.entries())
+    .map(([label, url]) => ({ label, url }))
+    .sort((a, b) => a.label.localeCompare(b.label));
 };
 
 const getFinalFractureType = (analysisResult) => {
@@ -112,7 +157,7 @@ function Dashboard({ user, onLogout }) {
         }
 
         const glbUrls = files
-          .filter((name) => typeof name === 'string' && name.toLowerCase().endsWith('.glb'))
+          .filter((name) => typeof name === 'string' && /\.(glb|gbl)$/i.test(name))
           .map((name) => `/models/${name}`);
 
         if (active && glbUrls.length > 0) {
@@ -161,9 +206,11 @@ function Dashboard({ user, onLogout }) {
         bone_part: data.bone_part,
         bbox: data.bbox,
         all_probabilities: data.all_probabilities || {},
-        type_probabilities: data.type_probabilities || {},
+        type_probabilities: data.is_fractured ? (data.type_probabilities || {}) : {},
+        localization_hidden_reason: data.localization_hidden_reason || '',
+        warning: data.warning || '',
         image_url: URL.createObjectURL(uploadedFile),
-        heatmap_url: withTimestamp(apiUrl(data.heatmap_url || '/get_heatmap')),
+        heatmap_url: data.heatmap_url ? withTimestamp(apiUrl(data.heatmap_url)) : '',
       };
       
       setResult(transformedResult);
@@ -212,6 +259,7 @@ function Dashboard({ user, onLogout }) {
     return resolveAutoModelUrl(analysisResult, availableModels);
   };
 
+  const modelOptions = buildModelOptions(availableModels);
   const autoMatchedModelUrl = resolveAutoModelUrl(result, availableModels);
   const autoSourceFractureType = getFinalFractureType(result) || 'N/A';
 
@@ -312,9 +360,9 @@ function Dashboard({ user, onLogout }) {
                       <option value="auto">
                         Auto (from output type: {autoSourceFractureType}) to {toModelLabel(autoMatchedModelUrl)}
                       </option>
-                      {availableModels.map((modelUrl) => (
-                        <option key={modelUrl} value={modelUrl}>
-                          {toModelLabel(modelUrl)}
+                      {modelOptions.map(({ label, url }) => (
+                        <option key={url} value={url}>
+                          {label}
                         </option>
                       ))}
                     </select>
