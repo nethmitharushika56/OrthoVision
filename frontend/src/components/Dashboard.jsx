@@ -95,9 +95,9 @@ function Dashboard({ user, onLogout }) {
     <div className="app">
       <header className="app__header">
         <div className="brand">
-          <img src="/ortho-vision-logo.svg" alt="OrthoVision Logo" className="brand__logo" style={{width: '46px', height: 'auto'}} />
+          <img src="/ortho-vision-logo.jpeg" alt="OrthoVision Logo" className="brand__logo" style={{width: '46px', height: 'auto'}} />
           <div>
-            <h1 className="brand__name">OrthoVision AI</h1>
+            <h1 className="brand__name brand__name--animated">OrthoVision AI</h1>
             <p className="brand__subtitle">Fracture Detection & Analysis</p>
           </div>
         </div>
