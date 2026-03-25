@@ -19,6 +19,15 @@ const Login = ({ onLogin }) => {
         // Store user info in localStorage
         const user = { email, name: email.split('@')[0] };
         localStorage.setItem('orthovision_user', JSON.stringify(user));
+
+        fetch('/users/upsert', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(user),
+        }).catch((error) => {
+          console.warn('Failed to sync login user to backend:', error);
+        });
+
         onLogin(user);
         navigate('/dashboard');
       } else {

@@ -46,6 +46,15 @@ const SignUp = ({ onLogin }) => {
         specialty: formData.specialty 
       };
       localStorage.setItem('orthovision_user', JSON.stringify(user));
+
+      fetch('/users/upsert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(user),
+      }).catch((error) => {
+        console.warn('Failed to sync signup user to backend:', error);
+      });
+
       onLogin(user);
       navigate('/dashboard');
       setLoading(false);
@@ -228,7 +237,7 @@ const SignUp = ({ onLogin }) => {
           </button>
 
           <button type="button" className="button button--ghost button--full" onClick={() => navigate('/login')}>
-            {'<- Go back'}
+            {'Go back'}
           </button>
         </form>
 

@@ -113,7 +113,8 @@ def get_model(model_path: str = DEFAULT_MODEL_PATH):
             raise FileNotFoundError(
                 f"Model file not found at {model_path} or {type_model_path}. Run training first."
             )
-    model = tf.keras.models.load_model(model_path)
+    # Inference service does not need training compile state/loss objects.
+    model = tf.keras.models.load_model(model_path, compile=False)
     # Some Keras/TF versions load Sequential models in an unbuilt state;
     # call once to ensure `inputs`/`output` are defined.
     # Using 384x384 for EfficientNetB3 model
@@ -125,7 +126,8 @@ def get_model(model_path: str = DEFAULT_MODEL_PATH):
 def get_type_model(model_path: str = DEFAULT_TYPE_MODEL_PATH):
     if not os.path.exists(model_path):
         return None
-    model = tf.keras.models.load_model(model_path)
+    # Avoid deserialization failures from training-only custom losses/metrics.
+    model = tf.keras.models.load_model(model_path, compile=False)
     _ = model(tf.zeros((1, 384, 384, 3), dtype=tf.float32), training=False)
     return model
 

@@ -12,6 +12,9 @@ export default defineConfig({
       '/analyze': 'http://localhost:5000',
       '/get_heatmap': 'http://localhost:5000',
       '/health': 'http://localhost:5000',
+      '/db': 'http://localhost:5000',
+      '/users': 'http://localhost:5000',
+      '/analyses': 'http://localhost:5000',
     },
   },
 })

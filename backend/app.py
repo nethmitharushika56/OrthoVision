@@ -1,7 +1,17 @@
 import os
+import json
 
 from flask import Flask, jsonify, request, send_file, send_from_directory
 from flask_cors import CORS
+
+from database import (
+    check_db_health,
+    create_analysis,
+    get_user_by_email,
+    init_db,
+    list_analyses,
+    upsert_user,
+)
 
 from utils import (
     DEFAULT_HEATMAP_PATH,
@@ -19,11 +29,79 @@ def create_app():
     CORS(app)
 
     ensure_dirs()
+    db_ready = True
+    db_error = ""
+    try:
+        init_db()
+    except Exception as exc:
+        db_ready = False
+        db_error = str(exc)
+
     model = get_model(DEFAULT_MODEL_PATH)
 
     @app.get("/health")
     def health():
-        return jsonify({"status": "ok", "model_loaded": model is not None})
+        db_connected = check_db_health() if db_ready else False
+        return jsonify(
+            {
+                "status": "ok",
+                "model_loaded": model is not None,
+                "db_connected": db_connected,
+                "db_error": db_error if not db_connected else "",
+            }
+        )
+
+    @app.get("/db/health")
+    def db_health():
+        connected = check_db_health() if db_ready else False
+        return jsonify({"status": "ok" if connected else "error", "connected": connected, "error": db_error})
+
+    @app.post("/users/upsert")
+    def user_upsert():
+        if not db_ready:
+            return jsonify({"error": f"Database is not available: {db_error}"}), 503
+        payload = request.get_json(silent=True) or {}
+        try:
+            user = upsert_user(payload)
+            return jsonify(user)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except Exception as exc:
+            return jsonify({"error": f"Failed to save user: {exc}"}), 500
+
+    @app.get("/users/<path:email>")
+    def get_user(email):
+        if not db_ready:
+            return jsonify({"error": f"Database is not available: {db_error}"}), 503
+        try:
+            user = get_user_by_email(email)
+            if user is None:
+                return jsonify({"error": "User not found"}), 404
+            return jsonify(user)
+        except Exception as exc:
+            return jsonify({"error": f"Failed to fetch user: {exc}"}), 500
+
+    @app.post("/analyses")
+    def create_analysis_endpoint():
+        if not db_ready:
+            return jsonify({"error": f"Database is not available: {db_error}"}), 503
+        payload = request.get_json(silent=True) or {}
+        try:
+            created = create_analysis(payload)
+            return jsonify(created), 201
+        except Exception as exc:
+            return jsonify({"error": f"Failed to save analysis: {exc}"}), 500
+
+    @app.get("/analyses")
+    def list_analyses_endpoint():
+        if not db_ready:
+            return jsonify({"error": f"Database is not available: {db_error}"}), 503
+        user_email = request.args.get("userEmail")
+        try:
+            data = list_analyses(user_email=user_email)
+            return jsonify(data)
+        except Exception as exc:
+            return jsonify({"error": f"Failed to list analyses: {exc}"}), 500
 
     @app.post("/analyze")
     def analyze():
@@ -46,6 +124,24 @@ def create_app():
             pass
 
         result = predict_fracture(model=model, img_path=img_path)
+
+        # Best-effort persistence when caller passes user email in form data.
+        user_email = (request.form.get("userEmail") or "").strip().lower()
+        try:
+            create_analysis(
+                {
+                    "userEmail": user_email or None,
+                    "prediction": result.get("predicted_class"),
+                    "isFractured": result.get("is_fractured"),
+                    "fractureType": result.get("fracture_type"),
+                    "confidence": result.get("confidence"),
+                    "bonePart": result.get("bone_part"),
+                    "resultJson": json.dumps(result),
+                }
+            )
+        except Exception:
+            pass
+
         return jsonify(result)
 
     @app.get("/get_heatmap")

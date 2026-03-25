@@ -27,18 +27,42 @@ const FRACTURE_MODEL_MAP = {
   'communited fracture': '/models/Comminuted_fracture_shaded.glb',
   'communitedfracture': '/models/Comminuted_fracture_shaded.glb',
   comminuted: '/models/Comminuted_fracture_shaded.glb',
-  'fracture dislocation': '/models/Fracture_dislocation_shaded.glb',
-  'fracturedislocation': '/models/Fracture_dislocation_shaded.glb',
+  'fracture dislocation': '/models/Fracturedislocation_shaded.glb',
+  'fracturedislocation': '/models/Fracturedislocation_shaded.glb',
   'greenstick fracture': '/models/Greenstick_fracture.glb',
   'greenstickfracture': '/models/Greenstick_fracture.glb',
   greenstick: '/models/Greenstick_fracture.glb',
+  'hairline fracture': '/models/HairlineFractureshaded.glb',
+  'hairlinefracture': '/models/HairlineFractureshaded.glb',
+  hairline: '/models/HairlineFractureshaded.glb',
+  'impacted fracture': '/models/Impacted_fracture.glb',
+  'impactedfracture': '/models/Impacted_fracture.glb',
+  impacted: '/models/Impacted_fracture.glb',
+  'longitudinal fracture': '/models/LongitudinalFracture.glb',
+  'longitudinalfracture': '/models/LongitudinalFracture.glb',
+  longitudinal: '/models/LongitudinalFracture.glb',
+  'oblique fracture': '/models/Oblique_shaded.glb',
+  'obliquefracture': '/models/Oblique_shaded.glb',
+  oblique: '/models/Oblique_shaded.glb',
+  'pathological fracture': '/models/Pathological_shaded.glb',
+  'pathologicalfracture': '/models/Pathological_shaded.glb',
+  pathological: '/models/Pathological_shaded.glb',
+  'spiral fracture': '/models/Spiral_shaded.glb',
+  'spiralfracture': '/models/Spiral_shaded.glb',
+  spiral: '/models/Spiral_shaded.glb',
 };
 
 const BUILT_IN_MODELS = [
   '/models/Avulsion_fracture_shaded.glb',
   '/models/Comminuted_fracture_shaded.glb',
-  '/models/Fracture_dislocation_shaded.glb',
+  '/models/Fracturedislocation_shaded.glb',
   '/models/Greenstick_fracture.glb',
+  '/models/HairlineFractureshaded.glb',
+  '/models/Impacted_fracture.glb',
+  '/models/LongitudinalFracture.glb',
+  '/models/Oblique_shaded.glb',
+  '/models/Pathological_shaded.glb',
+  '/models/Spiral_shaded.glb',
 ];
 
 const normalizeKey = (value = '') =>
@@ -64,6 +88,24 @@ const toModelLabel = (modelUrl) => {
   }
   if (key.includes('greenstick')) {
     return 'Greenstick fracture';
+  }
+  if (key.includes('hairline')) {
+    return 'Hairline fracture';
+  }
+  if (key.includes('impacted')) {
+    return 'Impacted fracture';
+  }
+  if (key.includes('longitudinal')) {
+    return 'Longitudinal fracture';
+  }
+  if (key.includes('oblique')) {
+    return 'Oblique fracture';
+  }
+  if (key.includes('pathological')) {
+    return 'Pathological fracture';
+  }
+  if (key.includes('spiral')) {
+    return 'Spiral fracture';
   }
 
   return baseName.replace(/_/g, ' ');
@@ -131,6 +173,7 @@ function Dashboard({ user, onLogout }) {
   const [file, setFile] = useState(null);
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [analyzeError, setAnalyzeError] = useState('');
   const [availableModels, setAvailableModels] = useState(BUILT_IN_MODELS);
   const [selectedModelUrl, setSelectedModelUrl] = useState('auto');
   const navigate = useNavigate();
@@ -178,10 +221,14 @@ function Dashboard({ user, onLogout }) {
   const handleAnalyze = async (uploadedFile) => {
     setFile(uploadedFile);
     setLoading(true);
+    setAnalyzeError('');
     
     try {
       const formData = new FormData();
       formData.append('image', uploadedFile);
+      if (user?.email) {
+        formData.append('userEmail', user.email);
+      }
       
       const response = await fetch(apiUrl('/analyze'), {
         method: 'POST',
@@ -218,7 +265,7 @@ function Dashboard({ user, onLogout }) {
       setSelectedModelUrl('auto');
     } catch (error) {
       console.error('Error analyzing image:', error);
-      alert('Failed to analyze image. Make sure the backend server is running.');
+      setAnalyzeError('Failed to analyze image. Make sure the backend server is running on http://127.0.0.1:5000.');
     } finally {
       setLoading(false);
     }
@@ -300,7 +347,13 @@ function Dashboard({ user, onLogout }) {
             </button>
           </div>
           <div className="user-menu">
-            <div className="user-avatar">{user?.name?.charAt(0).toUpperCase() || 'U'}</div>
+            <div className="user-avatar">
+              {user?.profileImage ? (
+                <img src={user.profileImage} alt="Profile" className="user-avatar-image" />
+              ) : (
+                user?.name?.charAt(0).toUpperCase() || 'U'
+              )}
+            </div>
             <div className="user-info">
               <div className="user-name">{user?.name || 'User'}</div>
               <div className="user-email">{user?.email || ''}</div>
@@ -324,6 +377,7 @@ function Dashboard({ user, onLogout }) {
               <div className="card__header">
                 <h2 className="card__title">Upload X-Ray Image</h2>
                 <p className="card__description">Upload an X-ray image to detect and classify fractures</p>
+                {analyzeError && <p className="analysis-error">{analyzeError}</p>}
               </div>
               <Uploader onAnalyze={handleAnalyze} loading={loading} />
             </div>
@@ -336,7 +390,10 @@ function Dashboard({ user, onLogout }) {
                 
                 <div style={{ padding: '20px', borderTop: '1px solid var(--border)', display: 'flex', gap: '12px', flexDirection: 'column' }}>
                   <button
-                    onClick={() => setResult(null)}
+                    onClick={() => {
+                      setResult(null);
+                      setAnalyzeError('');
+                    }}
                     className="button button--secondary"
                     style={{ width: '100%' }}
                   >

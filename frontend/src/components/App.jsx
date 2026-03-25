@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import LandingPage from './LandingPage.jsx';
+import OpeningPage from './OpeningPage.jsx';
 import Login from './Login.jsx';
 import SignUp from './SignUp.jsx';
 import Dashboard from './Dashboard.jsx';
@@ -51,6 +52,10 @@ function App() {
       <Routes>
         <Route
           path="/"
+          element={<OpeningPage />}
+        />
+        <Route
+          path="/landing"
           element={<LandingPage />}
         />
         <Route
@@ -80,6 +85,10 @@ function App() {
         <Route
           path="/privacy"
           element={<TermsAndConditions />}
+        />
+        <Route
+          path="*"
+          element={<Navigate to="/" replace />}
         />
       </Routes>
     </Router>
