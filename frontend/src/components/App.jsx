@@ -12,6 +12,7 @@ import TermsAndConditions from './TermsAndConditions.jsx';
 function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [theme, setTheme] = useState('light');
 
   useEffect(() => {
     // Check if user is already logged in
@@ -25,6 +26,22 @@ function App() {
     }
     setLoading(false);
   }, []);
+
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('orthovision_theme');
+    if (savedTheme) {
+      setTheme(savedTheme);
+    }
+  }, []);
+
+  useEffect(() => {
+    document.body.dataset.theme = theme;
+    localStorage.setItem('orthovision_theme', theme);
+  }, [theme]);
+
+  const handleToggleTheme = () => {
+    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+  };
 
   const handleLogin = (userData) => {
     setUser(userData);
@@ -65,6 +82,16 @@ function App() {
         <Route
           path="/signup"
           element={user ? <Navigate to="/dashboard" /> : <SignUp onLogin={handleLogin} />}
+        <Route 
+          path="/dashboard" 
+          element={user ? (
+            <Dashboard
+              user={user}
+              onLogout={handleLogout}
+            />
+          ) : (
+            <Navigate to="/login" />
+          )}
         />
         <Route
           path="/dashboard"
@@ -91,6 +118,19 @@ function App() {
           element={<Navigate to="/" replace />}
         />
       </Routes>
+      <footer className="app-footer">
+        <div className="app-footer__content">
+          <span className="app-footer__text">OrthoVision AI</span>
+          <button
+            type="button"
+            className="button button--secondary button--small"
+            onClick={handleToggleTheme}
+            aria-label="Toggle color theme"
+          >
+            {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+          </button>
+        </div>
+      </footer>
     </Router>
   );
 }

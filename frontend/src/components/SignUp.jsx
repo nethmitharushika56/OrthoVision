@@ -2,6 +2,41 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 
 const SignUp = ({ onLogin }) => {
+  const featureList = [
+    {
+      id: 'analytics',
+      icon: '●',
+      title: 'Advanced Analytics',
+      summary: 'Track patient outcomes and analysis history',
+      details: [
+        'Centralized reporting to monitor case trends.',
+        'Outcome tracking to support continuous improvement.',
+        'Export-ready summaries for research and audits.'
+      ]
+    },
+    {
+      id: 'collaboration',
+      icon: '◆',
+      title: 'Team Collaboration',
+      summary: 'Share and discuss cases with colleagues',
+      details: [
+        'Invite teammates to review tricky cases.',
+        'Structured notes for clinical decision trails.',
+        'Role-based access to keep data secure.'
+      ]
+    },
+    {
+      id: 'mobile',
+      icon: '■',
+      title: 'Mobile Access',
+      summary: 'Access from any device, anywhere',
+      details: [
+        'Responsive UI for tablets and phones.',
+        'Secure sign-in on the go.',
+        'Always-on access to recent analyses.'
+      ]
+    }
+  ];
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
@@ -12,6 +47,7 @@ const SignUp = ({ onLogin }) => {
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [selectedFeature, setSelectedFeature] = useState(null);
   const navigate = useNavigate();
 
   const handleChange = (e) => {
@@ -142,43 +178,130 @@ const SignUp = ({ onLogin }) => {
                 required
                 autoComplete="name"
               />
+    <div className="auth-container">
+      <div className="auth-layout">
+        <div className="auth-panel">
+          <div className="auth-card auth-card--wide">
+            <div className="auth-header">
+              <img src="/ortho-vision-logo.jpeg" alt="OrthoVision Logo" className="brand__logo auth-logo" style={{width: '80px', height: 'auto'}} />
+              <h1 className="auth-title">Create Account</h1>
+              <p className="auth-subtitle">Join OrthoVision AI platform</p>
             </div>
 
-            <div className="form-group">
-              <label htmlFor="specialty" className="form-label">Specialty</label>
-              <select
-                id="specialty"
-                name="specialty"
-                value={formData.specialty}
-                onChange={handleChange}
-                className="form-input"
-                required
+            <form onSubmit={handleSubmit} className="auth-form">
+              {error && <div className="auth-error">{error}</div>}
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label htmlFor="fullName" className="form-label">Full Name</label>
+                  <input
+                    id="fullName"
+                    name="fullName"
+                    type="text"
+                    value={formData.fullName}
+                    onChange={handleChange}
+                    className="form-input"
+                    placeholder="Dr. John Smith"
+                    required
+                    autoComplete="name"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="specialty" className="form-label">Specialty</label>
+                  <select
+                    id="specialty"
+                    name="specialty"
+                    value={formData.specialty}
+                    onChange={handleChange}
+                    className="form-input"
+                    required
+                  >
+                    <option value="">Select specialty</option>
+                    <option value="orthopedic">Orthopedic Surgeon</option>
+                    <option value="radiologist">Radiologist</option>
+                    <option value="emergency">Emergency Medicine</option>
+                    <option value="sports">Sports Medicine</option>
+                    <option value="general">General Practitioner</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="email" className="form-label">Email Address</label>
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  value={formData.email}
+                  onChange={handleChange}
+                  className="form-input"
+                  placeholder="doctor@hospital.com"
+                  required
+                  autoComplete="email"
+                />
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label htmlFor="password" className="form-label">Password</label>
+                  <input
+                    id="password"
+                    name="password"
+                    type="password"
+                    value={formData.password}
+                    onChange={handleChange}
+                    className="form-input"
+                    placeholder="Min. 8 characters"
+                    required
+                    minLength="8"
+                    autoComplete="new-password"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="confirmPassword" className="form-label">Confirm Password</label>
+                  <input
+                    id="confirmPassword"
+                    name="confirmPassword"
+                    type="password"
+                    value={formData.confirmPassword}
+                    onChange={handleChange}
+                    className="form-input"
+                    placeholder="Re-enter password"
+                    required
+                    minLength="8"
+                    autoComplete="new-password"
+                  />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label className="checkbox-label checkbox-label--block">
+                  <input 
+                    type="checkbox" 
+                    name="acceptTerms"
+                    className="checkbox"
+                    checked={formData.acceptTerms}
+                    onChange={handleChange}
+                    required
+                  />
+                  <span>I agree to the <a href="#" className="link-text">Terms of Service</a> and <a href="#" className="link-text">Privacy Policy</a></span>
+                </label>
+              </div>
+
+              <button
+                type="submit"
+                className="button button--primary button--full"
+                disabled={loading}
               >
-                <option value="">Select specialty</option>
-                <option value="orthopedic">Orthopedic Surgeon</option>
-                <option value="radiologist">Radiologist</option>
-                <option value="emergency">Emergency Medicine</option>
-                <option value="sports">Sports Medicine</option>
-                <option value="general">General Practitioner</option>
-                <option value="other">Other</option>
-              </select>
-            </div>
-          </div>
+                {loading ? 'Creating Account...' : 'Create Account'}
+              </button>
 
-          <div className="form-group">
-            <label htmlFor="email" className="form-label">Email Address</label>
-            <input
-              id="email"
-              name="email"
-              type="email"
-              value={formData.email}
-              onChange={handleChange}
-              className="form-input"
-              placeholder="doctor@hospital.com"
-              required
-              autoComplete="email"
-            />
-          </div>
+              <div className="auth-divider">
+                <span>or sign up with</span>
+              </div>
 
           <div className="form-row">
             <div className="form-group">
@@ -213,6 +336,7 @@ const SignUp = ({ onLogin }) => {
               />
             </div>
           </div>
+        </div>
 
           <div className="form-group">
             <label className="checkbox-label checkbox-label--block">
