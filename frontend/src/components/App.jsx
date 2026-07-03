@@ -5,6 +5,7 @@ import OpeningPage from './OpeningPage.jsx';
 import Login from './Login.jsx';
 import SignUp from './SignUp.jsx';
 import Dashboard from './Dashboard.jsx';
+import LearningHub from './LearningHub.jsx';
 import Settings from './Settings.jsx';
 import History from './History.jsx';
 import TermsAndConditions from './TermsAndConditions.jsx';
@@ -13,6 +14,7 @@ function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [theme, setTheme] = useState('light');
+  const currentYear = new Date().getFullYear();
 
   useEffect(() => {
     // Check if user is already logged in
@@ -88,6 +90,10 @@ function App() {
           element={user ? <Dashboard user={user} onLogout={handleLogout} /> : <Navigate to="/login" />}
         />
         <Route
+          path="/learn"
+          element={user ? <LearningHub /> : <Navigate to="/login" />}
+        />
+        <Route
           path="/settings"
           element={user ? <Settings user={user} onLogout={handleLogout} onUpdateUser={handleUpdateUser} /> : <Navigate to="/login" />}
         />
@@ -110,7 +116,7 @@ function App() {
       </Routes>
       <footer className="app-footer">
         <div className="app-footer__content">
-          <span className="app-footer__text">OrthoVision AI</span>
+          <span className="app-footer__text">&copy; {currentYear} OrthoVision AI. All rights reserved.</span>
           <button
             type="button"
             className="button button--secondary button--small"
