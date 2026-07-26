@@ -1,12 +1,11 @@
 {
-  "Avulsion fracture": 0,
-  "Comminuted fracture": 1,
-  "Fracture Dislocation": 2,
-  "Greenstick fracture": 3,
-  "Hairline Fracture": 4,
-  "Impacted fracture": 5,
-  "Longitudinal fracture": 6,
-  "Oblique fracture": 7,
-  "Pathological fracture": 8,
-  "Spiral Fracture": 9
+  "Comminuted fracture": 0,
+  "Fracture Dislocation": 1,
+  "Greenstick fracture": 2,
+  "Hairline Fracture": 3,
+  "Impacted fracture": 4,
+  "Longitudinal fracture": 5,
+  "Oblique fracture": 6,
+  "Pathological fracture": 7,
+  "Spiral Fracture": 8
 }

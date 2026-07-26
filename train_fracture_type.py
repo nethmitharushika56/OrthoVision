@@ -149,29 +149,17 @@ def load_dataset() -> tuple[list[str], list[int], list[str], list[int], dict]:
     return train_paths, train_labels, test_paths, test_labels, class_indices
 
 
-def make_tf_dataset(paths: list[str], labels: list[int], *, training: bool) -> tf.data.Dataset:
+def make_tf_dataset(paths: list[str], labels: list[int], *, training: bool, num_classes: int) -> tf.data.Dataset:
     ds = tf.data.Dataset.from_tensor_slices((paths, labels))
 
     def _preprocess(path, label):
         data = tf.io.read_file(path)
-        # Try jpeg first, then png.
-        try:
-            img = tf.image.decode_jpeg(
-                data,
-                channels=3,
-                try_recover_truncated=True,
-                acceptable_fraction=0.25,
-            )
-        except Exception:
-            img = tf.image.decode_png(data, channels=3)
+        img = tf.image.decode_image(data, channels=3, expand_animations=False)
         img = tf.image.resize(img, IMG_SIZE)
         img = tf.cast(img, tf.float32)
-        if training:
-            img = AUG(img, training=True)
-        img = tf.keras.applications.efficientnet.preprocess_input(img)
-        return img, tf.cast(label, tf.int32)
+        one_hot_label = tf.one_hot(tf.cast(label, tf.int32), depth=num_classes)
+        return img, one_hot_label
 
-    # `decode_jpeg` may still fail for some files -> drop those elements.
     ds = ds.map(_preprocess, num_parallel_calls=tf.data.AUTOTUNE)
     ds = ds.apply(tf.data.experimental.ignore_errors())
 
@@ -179,8 +167,22 @@ def make_tf_dataset(paths: list[str], labels: list[int], *, training: bool) -> t
         ds = ds.shuffle(buffer_size=min(5000, len(paths)), seed=SEED)
 
     ds = ds.batch(BATCH_SIZE)
-    if not training:
+
+    def _postprocess_train(images, labels):
+        images = AUG(images, training=True)
+        images = tf.keras.applications.efficientnet.preprocess_input(images)
+        return images, labels
+
+    def _postprocess_val(images, labels):
+        images = tf.keras.applications.efficientnet.preprocess_input(images)
+        return images, labels
+
+    if training:
+        ds = ds.map(_postprocess_train, num_parallel_calls=tf.data.AUTOTUNE)
+    else:
+        ds = ds.map(_postprocess_val, num_parallel_calls=tf.data.AUTOTUNE)
         ds = ds.cache()
+
     ds = ds.prefetch(tf.data.AUTOTUNE)
     return ds
 
@@ -197,14 +199,9 @@ def build_model(num_classes: int) -> tuple[tf.keras.Model, tf.keras.Model]:
         [
             base,
             layers.GlobalAveragePooling2D(),
-            layers.BatchNormalization(),
-            layers.Dropout(0.35),
-            layers.Dense(512, activation="relu"),
-            layers.BatchNormalization(),
-            layers.Dropout(0.35),
-            layers.Dense(256, activation="relu"),
-            layers.BatchNormalization(),
-            layers.Dropout(0.25),
+            layers.Dropout(0.5),
+            layers.Dense(256, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(1e-4)),
+            layers.Dropout(0.4),
             layers.Dense(num_classes, activation="softmax"),
         ]
     )
@@ -212,21 +209,12 @@ def build_model(num_classes: int) -> tuple[tf.keras.Model, tf.keras.Model]:
 
 
 def compile_model(model: tf.keras.Model, lr: float):
-    def sparse_cce_with_label_smoothing(y_true, y_pred):
-        y_true = tf.cast(tf.reshape(y_true, [-1]), tf.int32)
-        y_true_one_hot = tf.one_hot(y_true, depth=tf.shape(y_pred)[-1])
-        return tf.keras.losses.categorical_crossentropy(
-            y_true_one_hot,
-            y_pred,
-            label_smoothing=0.03,
-        )
-
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=lr),
-        loss=sparse_cce_with_label_smoothing,
+        loss=tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.03),
         metrics=[
             "accuracy",
-            tf.keras.metrics.SparseTopKCategoricalAccuracy(k=3, name="top_3_accuracy"),
+            tf.keras.metrics.TopKCategoricalAccuracy(k=3, name="top_3_accuracy"),
         ],
     )
 
@@ -297,45 +285,53 @@ def main():
     print("Class weights:")
     print("  " + ", ".join([f"{k}:{v:.3f}" for k, v in class_weights.items()]))
 
-    train_ds = make_tf_dataset(train_p, train_y, training=True)
-    val_ds = make_tf_dataset(val_p, val_y, training=False)
-    test_ds = make_tf_dataset(test_p, test_y, training=False)
+    train_ds = make_tf_dataset(train_p, train_y, training=True, num_classes=num_classes)
+    val_ds = make_tf_dataset(val_p, val_y, training=False, num_classes=num_classes)
+    test_ds = make_tf_dataset(test_p, test_y, training=False, num_classes=num_classes)
 
     model, base = build_model(num_classes)
     print(f"\nTotal params: {model.count_params():,}")
 
     compile_model(model, lr=8e-4)
 
-    callbacks = [
-        tf.keras.callbacks.EarlyStopping(monitor="val_loss", patience=5, restore_best_weights=True),
-        tf.keras.callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=3, min_lr=1e-6),
-        tf.keras.callbacks.ModelCheckpoint(
-            str(OUT_MODEL), monitor="val_accuracy", save_best_only=True, verbose=0
-        ),
-    ]
+    def get_callbacks():
+        return [
+            tf.keras.callbacks.EarlyStopping(monitor="val_loss", patience=5, restore_best_weights=True),
+            tf.keras.callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=3, min_lr=1e-6),
+            tf.keras.callbacks.ModelCheckpoint(
+                str(OUT_MODEL), monitor="val_accuracy", save_best_only=True, mode="max", verbose=0
+            ),
+        ]
 
     print("\nPhase 1: frozen base")
     model.fit(
         train_ds,
         validation_data=val_ds,
         epochs=EPOCHS_HEAD,
-        callbacks=callbacks,
+        callbacks=get_callbacks(),
         class_weight=class_weights,
         verbose=1,
     )
 
     # Fine-tune top 35% of the base.
     print("\nPhase 2: fine-tune")
+    base.trainable = True
     n = len(base.layers)
-    for layer in base.layers[int(n * 0.65) :]:
-        layer.trainable = True
+    fine_tune_at = int(n * 0.65)
+    for layer in base.layers[:fine_tune_at]:
+        layer.trainable = False
+    for layer in base.layers[fine_tune_at:]:
+        if isinstance(layer, layers.BatchNormalization):
+            layer.trainable = False
+        else:
+            layer.trainable = True
 
     compile_model(model, lr=8e-5)
     model.fit(
         train_ds,
         validation_data=val_ds,
         epochs=EPOCHS_FINE_TUNE,
-        callbacks=callbacks,
+        callbacks=get_callbacks(),
         class_weight=class_weights,
         verbose=1,
     )
@@ -350,7 +346,7 @@ def main():
     for xb, yb in test_ds:
         pb = model.predict(xb, verbose=0)
         pred_batches.append(pb)
-        y_true_batches.append(yb.numpy())
+        y_true_batches.append(np.argmax(yb.numpy(), axis=1))
 
     y_true = np.concatenate(y_true_batches, axis=0).astype(np.int32)
     pred_probs = np.concatenate(pred_batches, axis=0)
